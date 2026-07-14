@@ -1,7 +1,7 @@
 
 from collections import defaultdict
 
-from .standards import evaluate_hazards, is_significant, report_level, risk_score
+from .standards import evaluate_hazards, is_focus_warning, is_significant, report_level, risk_score
 
 
 def _fmt_date(date_str):
@@ -130,7 +130,7 @@ class ReportGenerator:
     def _hazard_type(self, c):
         return [(h["name"], h["level"]) for h in evaluate_hazards(c)]
 
-    def _hazard_label(self, c, max_items=4):
+    def _hazard_label(self, c, max_items=2):
         labels = []
         for hazard, _ in self._hazard_type(c):
             if hazard not in labels:
@@ -275,7 +275,7 @@ class ReportGenerator:
         if has_fog and "有雾霾天气" not in desc_parts:
             desc_parts.append("有雾霾天气")
         if official_title:
-            desc_parts.append(f"官方预警：{official_title}")
+            desc_parts.append(official_title)
 
         return prefix + "，".join(desc_parts) + "。"
 
@@ -435,6 +435,98 @@ class ReportGenerator:
     def _room_score(self, r):
         return risk_score(r)
 
+    def _room_focus_period(self, room):
+        parts = []
+        warnings = room.get("officialWarnings") or []
+        if warnings:
+            title = warnings[0].get("title") or warnings[0].get("typeName") or "官方预警"
+            pub_time = warnings[0].get("pubTime", "")
+            date_part = pub_time.split("T")[0] if "T" in pub_time else pub_time[:10]
+            date_text = _fmt_date(date_part) if date_part else ""
+            parts.append(f"{date_text}{title}" if date_text else title)
+
+        daily = room.get("dailySummary", [])
+        if room.get("tmax", 0) > 40:
+            dates = [d["date"] for d in daily if d.get("tmax", 0) > 40]
+            date_text = _fmt_date_range(dates)
+            parts.append(f"{date_text}40℃以上高温" if date_text else "40℃以上高温")
+        elif room.get("tmax", 0) > 37:
+            dates = [d["date"] for d in daily if d.get("tmax", 0) > 37]
+            date_text = _fmt_date_range(dates)
+            parts.append(f"{date_text}37℃以上高温" if date_text else "37℃以上高温")
+        elif room.get("maxContDaily35", 0) >= 3:
+            dates = [d["date"] for d in daily if d.get("tmax", 0) > 35]
+            date_text = _fmt_date_range(dates)
+            parts.append(f"{date_text}连续高温" if date_text else "连续高温")
+
+        if room.get("maxRainHours", 0) >= 3:
+            dates = [d["date"] for d in daily if float(d.get("precip", 0)) > 0]
+            date_text = _fmt_date_range(dates)
+            parts.append(
+                f"{date_text}连续降雨{room['maxRainHours']}小时"
+                if date_text else f"连续降雨{room['maxRainHours']}小时"
+            )
+        elif room.get("maxPrecip", 0) >= 8:
+            dates = [d["date"] for d in daily if float(d.get("precip", 0)) > 0]
+            date_text = _fmt_date_range(dates)
+            parts.append(
+                f"{date_text}最大小时降水{room['maxPrecip']:g}mm"
+                if date_text else f"最大小时降水{room['maxPrecip']:g}mm"
+            )
+
+        weather_parts = []
+        if room.get("hasThunder"):
+            weather_parts.append("雷暴")
+        if room.get("hasHail"):
+            weather_parts.append("冰雹")
+        if room.get("hasFreezing"):
+            weather_parts.append("冻雨")
+        if room.get("hasSnow"):
+            weather_parts.append("降雪")
+        if room.get("hasFog") or room.get("hasHaze") or room.get("hasSand"):
+            weather_parts.append("雾霾")
+        if weather_parts:
+            dates = [
+                d["date"] for d in daily
+                if any(kw in d.get("textDay", "") + d.get("textNight", "")
+                       for kw in ("雷", "冰雹", "冻雨", "冰粒", "雪", "雾", "霾", "沙"))
+            ]
+            date_text = _fmt_date_range(dates)
+            label = "、".join(weather_parts)
+            parts.append(f"{date_text}{label}" if date_text else label)
+
+        return "；".join(parts[:2]) if parts else "重点风险时段需结合小时预报持续关注"
+
+    def _select_top_rooms(self, rooms_data, focus_counties, total_limit=10, county_limit=6):
+        focus_names = {c["name"] for c in focus_counties}
+        selected = []
+        selected_keys = set()
+        seen_cty = defaultdict(int)
+        sorted_rooms = sorted(rooms_data, key=lambda item: self._room_score(item), reverse=True)
+
+        for r in sorted_rooms:
+            ct = r.get("county", "")
+            if ct not in focus_names:
+                continue
+            if seen_cty[ct] >= county_limit:
+                continue
+            selected.append(r)
+            selected_keys.add((ct, r.get("name", "")))
+            seen_cty[ct] += 1
+            if len(selected) >= total_limit:
+                return selected
+
+        for r in sorted_rooms:
+            ct = r.get("county", "")
+            key = (ct, r.get("name", ""))
+            if ct not in focus_names or key in selected_keys:
+                continue
+            selected.append(r)
+            if len(selected) >= total_limit:
+                break
+
+        return selected
+
     def generate(self, weather_data):
         rooms_data = weather_data.get("counties", [])
         update_time = weather_data.get("updateTime", "")
@@ -452,7 +544,27 @@ class ReportGenerator:
 
         county_stats = self._county_stats(rooms_data)
         warned_counties = [c for c in county_stats if c["warnedCount"] > 0]
-        affected_count = sum(c["warnedCount"] for c in county_stats)
+        affected_count = sum(
+            1 for room in rooms_data
+            if is_focus_warning({
+                "maxTemp": room.get("tmax", 0),
+                "minTemp": room.get("tmin", 0),
+                "maxWind": room.get("maxWind", 0),
+                "maxPrecip": room.get("maxPrecip", 0),
+                "maxDailyPrecip": room.get("maxDailyPrecip", 0),
+                "maxPrecip3h": room.get("maxPrecip3h", 0),
+                "maxPrecip6h": room.get("maxPrecip6h", 0),
+                "maxPrecip12h": room.get("maxPrecip12h", 0),
+                "maxPrecip24h": room.get("maxPrecip24h", 0),
+                "maxContDaily35": room.get("maxContDaily35", 0),
+                "hasHail": room.get("hasHail", False),
+                "hasFreezing": room.get("hasFreezing", False),
+                "hasSnow": room.get("hasSnow", False),
+                "hasThunder": room.get("hasThunder", False),
+                "hasFogHaze": room.get("hasFog", False) or room.get("hasHaze", False) or room.get("hasSand", False),
+                "officialWarnings": room.get("officialWarnings", []),
+            })
+        )
         overall_level = self._get_overall_level(warned_counties)
         high_risk = [c for c in warned_counties if self._is_significant_risk(c)]
         focus_counties = high_risk or warned_counties
@@ -495,27 +607,13 @@ class ReportGenerator:
             lines.append("一、重点风险")
             lines.append("")
 
-            for idx, c in enumerate(focus_counties[:6]):
+            for idx, c in enumerate(focus_counties[:4]):
                 lines.append(self._format_county_risk(c, is_highest=(idx == 0)))
             lines.append("")
 
             lines.append("二、重点机房")
             lines.append("")
-            all_rooms = sorted(rooms_data, key=lambda r: self._room_score(r), reverse=True)
-
-            top_rooms = []
-            seen_cty = defaultdict(int)
-            hr_names = {c["name"] for c in focus_counties}
-            for r in all_rooms:
-                ct = r.get("county", "")
-                if ct not in hr_names:
-                    continue
-                if seen_cty[ct] >= 3:
-                    continue
-                top_rooms.append(r)
-                seen_cty[ct] += 1
-                if len(top_rooms) >= 15:
-                    break
+            top_rooms = self._select_top_rooms(rooms_data, focus_counties)
 
             by_cty = defaultdict(list)
             order = []
@@ -560,7 +658,7 @@ class ReportGenerator:
                 label = self._hazard_label(room_stats)
                 lines.append(f"{idx+1}. {ct}（{label}）")
                 for r in rooms:
-                    lines.append(f"    * {r['name']}")
+                    lines.append(f"    * {r['name']}：{self._room_focus_period(r)}")
                 lines.append("")
 
             lines.append("三、关注过程")
@@ -569,7 +667,7 @@ class ReportGenerator:
                 focus_counties,
                 focus_counties[0]["name"] if focus_counties else None
             )
-            for entry in timeline:
+            for entry in timeline[:2]:
                 lines.append(f"* {entry}")
             lines.append("")
 

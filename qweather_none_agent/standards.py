@@ -214,3 +214,7 @@ def is_warning(data):
 
 def is_significant(data):
     return max((h["severity"] for h in evaluate_hazards(data)), default=0) >= LEVEL_SCORE["橙色"]
+
+
+def is_focus_warning(data):
+    return is_significant(data)
