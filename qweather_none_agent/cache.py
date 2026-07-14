@@ -1,4 +1,3 @@
-
 import json
 import os
 import shutil
@@ -7,14 +6,16 @@ import time
 from pathlib import Path
 
 _DEFAULT_CACHE_ROOT = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".cache"))
-_CACHE_DIR = Path(os.environ.get(
-    "QWEATHER_CACHE_DIR",
-    _DEFAULT_CACHE_ROOT / "qweather-none-agent",
-))
+_CACHE_DIR = Path(
+    os.environ.get(
+        "QWEATHER_CACHE_DIR",
+        _DEFAULT_CACHE_ROOT / "qweather-none-agent",
+    )
+)
 
-DAILY_TTL = 3 * 60 * 60       # 3 hours
-HOURLY_TTL = 45 * 60          # 45 minutes
-WARNING_TTL = 15 * 60         # 15 minutes
+DAILY_TTL = 3 * 60 * 60  # 3 hours
+HOURLY_TTL = 45 * 60  # 45 minutes
+WARNING_TTL = 15 * 60  # 15 minutes
 
 
 def _key(lat, lon, endpoint):
@@ -41,7 +42,8 @@ def set(lat, lon, endpoint, payload):
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-                "w", encoding="utf-8", dir=_CACHE_DIR, delete=False) as file:
+            "w", encoding="utf-8", dir=_CACHE_DIR, delete=False
+        ) as file:
             temporary = Path(file.name)
             json.dump({"_ct": time.time(), "_pl": payload}, file, ensure_ascii=False)
         os.replace(temporary, filepath)

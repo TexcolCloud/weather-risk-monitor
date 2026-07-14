@@ -1,5 +1,0 @@
-from qweather_none_agent.cli import run
-
-
-if __name__ == "__main__":
-    run()

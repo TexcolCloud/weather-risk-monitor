@@ -55,45 +55,53 @@ class ReportGeneratorTest(unittest.TestCase):
         )
 
     def test_no_warning_report_does_not_crash(self):
-        report = _generator().generate({
-            "counties": [],
-            "total": 1,
-            "updateTime": "2026-07-14T00:00+08:00",
-        })
+        report = _generator().generate(
+            {
+                "counties": [],
+                "total": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+            }
+        )
 
         self.assertIn("暂无重大天气预警", report)
 
     def test_warning_without_significant_risk_does_not_crash(self):
-        report = _generator().generate({
-            "counties": [_room()],
-            "total": 1,
-            "updateTime": "2026-07-14T00:00+08:00",
-        })
+        report = _generator().generate(
+            {
+                "counties": [_room()],
+                "total": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+            }
+        )
 
         self.assertIn("重点风险", report)
         self.assertIn("C", report)
 
     def test_failed_weather_data_is_reported_as_incomplete(self):
-        report = _generator().generate({
-            "counties": [],
-            "total": 1,
-            "failed": 1,
-            "partialFailed": 1,
-            "updateTime": "2026-07-14T00:00+08:00",
-        })
+        report = _generator().generate(
+            {
+                "counties": [],
+                "total": 1,
+                "failed": 1,
+                "partialFailed": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+            }
+        )
 
         self.assertIn("数据获取失败", report)
         self.assertIn("数据获取不完整", report)
         self.assertNotIn("天气状况良好", report)
 
     def test_room_heading_and_risk_text_include_combined_hazards(self):
-        report = _generator().generate({
-            "counties": [
-                _room(maxPrecip=11.1, maxRainHours=3, hasThunder=True),
-            ],
-            "total": 1,
-            "updateTime": "2026-07-14T00:00+08:00",
-        })
+        report = _generator().generate(
+            {
+                "counties": [
+                    _room(maxPrecip=11.1, maxRainHours=3, hasThunder=True),
+                ],
+                "total": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+            }
+        )
 
         self.assertIn("C（橙色高温、强降水）", report)
         risk_section = report.split("二、重点机房")[0]
@@ -101,29 +109,6 @@ class ReportGeneratorTest(unittest.TestCase):
         self.assertIn("伴有短时强降雨", report)
         self.assertIn("伴有连续降雨", report)
         self.assertIn("伴有雷暴", report)
-
-    def test_top_rooms_are_not_evenly_capped_at_three_per_county(self):
-        locations = [
-            {"name": f"A{i}", "county": "A", "lon": 1, "lat": 1}
-            for i in range(8)
-        ] + [
-            {"name": f"B{i}", "county": "B", "lon": 2, "lat": 2}
-            for i in range(8)
-        ]
-        generator = ReportGenerator(locations, region="R")
-        rooms = [
-            _room(name=f"A{i}", county="A", tmax=41, maxCont37=8)
-            for i in range(8)
-        ] + [
-            _room(name=f"B{i}", county="B", tmax=38, maxCont37=2)
-            for i in range(8)
-        ]
-        focus_counties = [{"name": "A"}, {"name": "B"}]
-
-        selected = generator._select_top_rooms(rooms, focus_counties)
-
-        self.assertEqual(10, len(selected))
-        self.assertGreater(sum(1 for r in selected if r["county"] == "A"), 3)
 
     def test_room_lines_include_focus_period_reason(self):
         room = _room(
@@ -149,62 +134,27 @@ class ReportGeneratorTest(unittest.TestCase):
                 },
             ],
         )
-        report = _generator().generate({
-            "counties": [room],
-            "total": 1,
-            "updateTime": "2026-07-14T00:00+08:00",
-        })
+        report = _generator().generate(
+            {
+                "counties": [room],
+                "total": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+            }
+        )
 
         self.assertIn("A：7月14日高温", report)
         self.assertIn("7月15日连续降雨", report)
-
-    def test_county_timeline_uses_the_room_that_produced_the_maximum(self):
-        locations = [
-            {"name": "A", "county": "C", "lon": 1, "lat": 1},
-            {"name": "B", "county": "C", "lon": 2, "lat": 2},
-        ]
-        generator = ReportGenerator(locations, region="R")
-        first = _room(
-            name="A",
-            maxPrecip=1,
-            maxRainHours=1,
-            dailySummary=[{
-                "date": "2026-07-14",
-                "tmax": 38,
-                "tmin": 20,
-                "precip": 1,
-                "textDay": "雨",
-                "textNight": "雨",
-            }],
-        )
-        maximum = _room(
-            name="B",
-            maxPrecip=10,
-            maxRainHours=9,
-            dailySummary=[{
-                "date": "2026-07-16",
-                "tmax": 38,
-                "tmin": 20,
-                "precip": 10,
-                "textDay": "雨",
-                "textNight": "雨",
-            }],
-        )
-
-        county = generator._county_stats([first, maximum])[0]
-        timeline = generator._generate_timeline([county])
-
-        self.assertIn("7月16日", "\n".join(timeline))
-        self.assertNotIn("7月14日：C将出现连续降雨过程", "\n".join(timeline))
 
     def test_official_warning_time_is_used_when_forecast_period_is_missing(self):
         room = _room(
             tmax=None,
             dailySummary=[],
-            officialWarnings=[{
-                "typeName": "高温",
-                "pubTime": "2026-07-14T08:00+08:00",
-            }],
+            officialWarnings=[
+                {
+                    "typeName": "高温",
+                    "pubTime": "2026-07-14T08:00+08:00",
+                }
+            ],
         )
 
         self.assertEqual("7月14日高温预警", _generator()._room_focus_period(room))

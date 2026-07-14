@@ -5,7 +5,7 @@ import sys
 from . import cache
 from .config import SITES
 from .report import ReportGenerator
-from .weather import WeatherTool
+from .weather import WeatherService
 
 
 if hasattr(sys.stdout, "buffer"):
@@ -28,7 +28,7 @@ async def main():
         for r in SITES
     ]
 
-    weather_data = await WeatherTool.run(locations)
+    weather_data = await WeatherService.run(locations)
 
     generator = ReportGenerator(locations, region="示例区域")
     report = generator.generate(weather_data)

@@ -1,7 +1,16 @@
-
 from collections import defaultdict
 
-from .standards import evaluate_hazards, is_focus_warning, is_significant, report_level, risk_score
+from .aggregation import (
+    CountyAggregator,
+    dedupe_warnings,
+    find_rain_dates,
+    find_temp_dates,
+    find_weather_dates,
+    room_with_extreme,
+    to_number,
+)
+from .selectors import select_top_rooms
+from .warning_rules import evaluate_hazards, is_focus_warning, is_significant, report_level
 
 
 def _fmt_date(date_str):
@@ -22,7 +31,7 @@ def _fmt_date_range(dates):
     last = _fmt_date(dates[-1])
     first_m, *_ = first.split("月")
     if first_m and last.startswith(first_m + "月"):
-        last = last[len(first_m) + 1:]
+        last = last[len(first_m) + 1 :]
     return f"{first}至{last}"
 
 
@@ -33,152 +42,11 @@ def _compact_warning_title(title):
     return text
 
 
-def _number(value, default=0):
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    return int(number) if number.is_integer() else number
-
-
-def _room_with_extreme(rooms, field, highest=True):
-    candidates = [room for room in rooms if _number(room.get(field), None) is not None]
-    if not candidates:
-        return None
-    selector = max if highest else min
-    return selector(candidates, key=lambda room: _number(room.get(field)))
-
-
-def _dedupe_warnings(warnings):
-    unique = {}
-    for warning in warnings:
-        if not isinstance(warning, dict):
-            continue
-        key = warning.get("id") or (
-            warning.get("title", ""),
-            warning.get("typeName", ""),
-            warning.get("pubTime", ""),
-            warning.get("color", ""),
-        )
-        current = unique.get(key)
-        if current is None or warning.get("levelScore", 0) > current.get("levelScore", 0):
-            unique[key] = warning
-    return sorted(unique.values(), key=lambda warning: warning.get("levelScore", 0), reverse=True)
-
-
 class ReportGenerator:
-
     def __init__(self, locations, region="示例区域"):
         self.locations = locations
         self.region = region
-        self.county_map = {}
-        self.rooms_by_county = defaultdict(list)
-        for r in locations:
-            ct = r.get("county", "")
-            self.county_map[r["name"]] = ct
-            self.rooms_by_county[ct].append(r["name"])
-
-    def _county_stats(self, rooms_data):
-        by_county = defaultdict(list)
-        for rd in rooms_data:
-            ct = rd.get("county", "")
-            by_county[ct].append(rd)
-
-        stats = []
-        for ct, rooms in by_county.items():
-            official_warnings = []
-            for r in rooms:
-                official_warnings.extend(r.get("officialWarnings", []))
-            official_warnings = _dedupe_warnings(official_warnings)
-            total_rooms = len(self.rooms_by_county.get(ct, rooms))
-            max_temp_source = _room_with_extreme(rooms, "tmax")
-            min_temp_source = _room_with_extreme(rooms, "tmin", highest=False)
-            max_rain_source = _room_with_extreme(rooms, "maxRainHours")
-            max_precip_source = _room_with_extreme(rooms, "maxPrecip")
-            daily_heat_source = _room_with_extreme(rooms, "maxContDaily35")
-            stats.append({
-                "name": ct,
-                "roomCount": total_rooms,
-                "warnedCount": len(rooms),
-                "maxTemp": max_temp_source.get("tmax") if max_temp_source else None,
-                "minTemp": min_temp_source.get("tmin") if min_temp_source else None,
-                "maxCont40": max(_number(r.get("maxCont40")) for r in rooms),
-                "maxCont38": max(_number(r.get("maxCont38")) for r in rooms),
-                "maxCont37": max(_number(r.get("maxCont37")) for r in rooms),
-                "maxContDaily35": max(_number(r.get("maxContDaily35")) for r in rooms),
-                "maxContBelow0": max(_number(r.get("maxContBelow0")) for r in rooms),
-                "hoursAbove37": max(_number(r.get("hoursAbove37")) for r in rooms),
-                "hoursBelow5": max(_number(r.get("hoursBelow5")) for r in rooms),
-                "maxPrecip": max(_number(r.get("maxPrecip")) for r in rooms),
-                "maxDailyPrecip": max(_number(r.get("maxDailyPrecip")) for r in rooms),
-                "maxPrecip3h": max(_number(r.get("maxPrecip3h")) for r in rooms),
-                "maxPrecip6h": max(_number(r.get("maxPrecip6h")) for r in rooms),
-                "maxPrecip12h": max(_number(r.get("maxPrecip12h")) for r in rooms),
-                "maxPrecip24h": max(_number(r.get("maxPrecip24h")) for r in rooms),
-                "maxRainHours": max(_number(r.get("maxRainHours")) for r in rooms),
-                "maxWind": max(_number(r.get("maxWind")) for r in rooms),
-                "hasThunder": any(r.get("hasThunder") for r in rooms),
-                "hasSnow": any(r.get("hasSnow") for r in rooms),
-                "hasFreezing": any(r.get("hasFreezing") for r in rooms),
-                "hasHail": any(r.get("hasHail") for r in rooms),
-                "hasFogHaze": any(
-                    r.get("hasFog") or r.get("hasHaze") or r.get("hasSand") for r in rooms
-                ),
-                "officialWarnings": official_warnings[:5],
-                "officialWarningLevel": official_warnings[0]["color"] if official_warnings else "",
-                "officialWarningTitle": official_warnings[0]["title"] if official_warnings else "",
-                "rooms": self.rooms_by_county.get(ct, [r["name"] for r in rooms]),
-                "riskRooms": rooms,
-                "maxTempSource": max_temp_source,
-                "minTempSource": min_temp_source,
-                "maxRainSource": max_rain_source,
-                "maxPrecipSource": max_precip_source,
-                "dailyHeatSource": daily_heat_source,
-            })
-        stats.sort(key=lambda x: self._rank_score(x), reverse=True)
-        return stats
-
-    def _rank_score(self, c):
-        return risk_score(c)
-
-    def _find_temp_dates(self, county_stats, threshold, high=True):
-        if high and threshold == 35:
-            source = county_stats.get("dailyHeatSource")
-        elif high:
-            source = county_stats.get("maxTempSource")
-        else:
-            source = county_stats.get("minTempSource")
-        if not source:
-            return []
-        dates = []
-        for d in source.get("dailySummary", []):
-            temperature = _number(d.get("tmax" if high else "tmin"), None)
-            if temperature is None:
-                continue
-            if high and temperature > threshold:
-                dates.append(d.get("date", ""))
-            elif not high and temperature <= threshold:
-                dates.append(d.get("date", ""))
-        return sorted({date for date in dates if date})
-
-    def _find_rain_dates(self, county_stats):
-        source = county_stats.get("maxRainSource")
-        if not source:
-            return []
-        dates = []
-        for d in source.get("dailySummary", []):
-            if _number(d.get("precip")) > 0:
-                dates.append(d.get("date", ""))
-        return sorted({date for date in dates if date})
-
-    def _find_weather_dates(self, county_stats, keywords):
-        dates = []
-        for room in county_stats.get("riskRooms", []):
-            for d in room.get("dailySummary", []):
-                full_text = d.get("textDay", "") + d.get("textNight", "")
-                if any(kw in full_text for kw in keywords):
-                    dates.append(d.get("date", ""))
-        return sorted({date for date in dates if date})
+        self._aggregator = CountyAggregator(locations)
 
     def _get_overall_level(self, warned_counties):
         return report_level(warned_counties)
@@ -214,11 +82,11 @@ class ReportGenerator:
         name = c["name"]
         warned = c["warnedCount"]
         total = c["roomCount"]
-        temp = _number(c.get("maxTemp"))
-        min_temp = _number(c.get("minTemp"), None)
-        rain_hours = _number(c.get("maxRainHours"))
-        max_wind = _number(c.get("maxWind"))
-        max_precip = _number(c.get("maxPrecip"))
+        temp = to_number(c.get("maxTemp"))
+        min_temp = to_number(c.get("minTemp"), None)
+        rain_hours = to_number(c.get("maxRainHours"))
+        max_wind = to_number(c.get("maxWind"))
+        max_precip = to_number(c.get("maxPrecip"))
         has_thunder = c.get("hasThunder", False)
         has_fog = c.get("hasFogHaze", False)
         official_title = c.get("officialWarningTitle", "")
@@ -239,7 +107,7 @@ class ReportGenerator:
                 return
             temp_added = True
             if temp > 40:
-                high_dates = self._find_temp_dates(c, 40, high=True)
+                high_dates = find_temp_dates(c, 40, high=True)
                 cont = c.get("maxCont40", 0)
                 date_str = _fmt_date_range(high_dates)
                 if date_str:
@@ -254,8 +122,8 @@ class ReportGenerator:
                 cont_label = "38℃以上" if temp > 38 else "37℃以上"
                 if cont > 0:
                     desc_parts.append(f"{cont_label}持续约{cont}小时")
-            elif _number(c.get("maxContDaily35")) >= 3:
-                dates = self._find_temp_dates(c, 35, high=True)
+            elif to_number(c.get("maxContDaily35")) >= 3:
+                dates = find_temp_dates(c, 35, high=True)
                 date_str = _fmt_date_range(dates)
                 desc_parts.append(f"{date_str}连续高温" if date_str else "连续高温")
 
@@ -275,12 +143,12 @@ class ReportGenerator:
                 desc_parts.append(f"最低{min_temp}℃")
             else:
                 desc_parts.append("需注意道路结冰")
-            cont = _number(c.get("maxContBelow0"))
+            cont = to_number(c.get("maxContBelow0"))
             if cont > 0:
                 desc_parts.append(f"0℃以下持续约{cont}小时")
 
         elif primary_hazard in ("冰雹",):
-            dates = self._find_weather_dates(c, ("冰雹",))
+            dates = find_weather_dates(c, ("冰雹",))
             date_str = _fmt_date_range(dates)
             if date_str:
                 desc_parts.append(f"{date_str}将出现冰雹")
@@ -288,7 +156,7 @@ class ReportGenerator:
                 desc_parts.append("将出现冰雹天气")
 
         elif primary_hazard in ("冻雨",):
-            dates = self._find_weather_dates(c, ("冻雨", "冰粒"))
+            dates = find_weather_dates(c, ("冻雨", "冰粒"))
             date_str = _fmt_date_range(dates)
             if date_str:
                 desc_parts.append(f"{date_str}将出现冻雨")
@@ -296,7 +164,7 @@ class ReportGenerator:
                 desc_parts.append("将出现冻雨天气")
 
         elif primary_hazard in ("暴雪", "降雪"):
-            dates = self._find_weather_dates(c, ("雪",))
+            dates = find_weather_dates(c, ("雪",))
             date_str = _fmt_date_range(dates)
             if date_str:
                 desc_parts.append(f"{date_str}将出现{primary_hazard}")
@@ -318,15 +186,20 @@ class ReportGenerator:
                 desc_parts.append("将出现雾霾天气")
 
         if not temp_added and (
-                any(ht in ("红色高温", "橙色高温", "高温") for ht, _ in hazard_types)
-                or temp > 37
-                or _number(c.get("maxContDaily35")) >= 3):
+            any(ht in ("红色高温", "橙色高温", "高温") for ht, _ in hazard_types)
+            or temp > 37
+            or to_number(c.get("maxContDaily35")) >= 3
+        ):
             append_high_temp()
 
         for ht, level in hazard_types[1:]:
             if ht in ("红色高温", "橙色高温", "高温"):
                 continue
-            if ht in ("低温结冰", "道路结冰", "低温") and primary_hazard in ("低温结冰", "道路结冰", "低温"):
+            if ht in ("低温结冰", "道路结冰", "低温") and primary_hazard in (
+                "低温结冰",
+                "道路结冰",
+                "低温",
+            ):
                 continue
             if ht in ("冰雹", "冻雨", "暴雪", "降雪"):
                 continue
@@ -345,13 +218,19 @@ class ReportGenerator:
 
         if rain_hours > 0:
             desc_parts.append("伴有连续降雨")
-        if max_precip >= 8 and primary_hazard not in ("暴雨", "强降水") and not any(
-                "短时强降雨" in part for part in desc_parts):
+        if (
+            max_precip >= 8
+            and primary_hazard not in ("暴雨", "强降水")
+            and not any("短时强降雨" in part for part in desc_parts)
+        ):
             desc_parts.append("伴有短时强降雨")
         if has_thunder and "伴有雷暴" not in desc_parts:
             desc_parts.append("伴有雷暴")
-        if max_wind >= 6 and primary_hazard not in ("红色大风", "橙色大风", "大风", "强风") and not any(
-                part.startswith("最大风力") for part in desc_parts):
+        if (
+            max_wind >= 6
+            and primary_hazard not in ("红色大风", "橙色大风", "大风", "强风")
+            and not any(part.startswith("最大风力") for part in desc_parts)
+        ):
             desc_parts.append(f"最大风力{max_wind}级")
         if has_fog and "有雾霾天气" not in desc_parts:
             desc_parts.append("有雾霾天气")
@@ -367,17 +246,16 @@ class ReportGenerator:
         hail = [c for c in warned_counties if c["hasHail"]]
         if hail:
             c = hail[0]
-            dates = self._find_weather_dates(c, ("冰雹",))
+            dates = find_weather_dates(c, ("冰雹",))
             if dates:
                 entries.append(
-                    f"{_fmt_date_range(dates)}：{c['name']}将出现冰雹天气，"
-                    f"为本轮最高风险事件。"
+                    f"{_fmt_date_range(dates)}：{c['name']}将出现冰雹天气，为本轮最高风险事件。"
                 )
 
         freezing = [c for c in warned_counties if c["hasFreezing"]]
         if freezing and not hail:
             c = freezing[0]
-            dates = self._find_weather_dates(c, ("冻雨", "冰粒"))
+            dates = find_weather_dates(c, ("冻雨", "冰粒"))
             if dates:
                 entries.append(
                     f"{_fmt_date_range(dates)}：{c['name']}将出现冻雨天气，"
@@ -387,10 +265,10 @@ class ReportGenerator:
         snow = [c for c in warned_counties if c["hasSnow"]]
         if snow and not hail and not freezing:
             c = snow[0]
-            dates = self._find_weather_dates(c, ("雪",))
+            dates = find_weather_dates(c, ("雪",))
             label = "暴雪" if c["maxContBelow0"] >= 6 else "降雪"
             if dates:
-                min_temp = _number(c.get("minTemp"), None)
+                min_temp = to_number(c.get("minTemp"), None)
                 min_text = f"，最低{min_temp}℃" if min_temp is not None else ""
                 entries.append(
                     f"{_fmt_date_range(dates)}：{c['name']}将出现{label}天气，"
@@ -402,12 +280,13 @@ class ReportGenerator:
 
         highest = next((c for c in warned_counties if c["name"] == highest_name), None)
         if (
-                highest
-                and _number(highest.get("maxTemp")) > 37
-                and _number(highest.get("maxCont37")) >= 3):
+            highest
+            and to_number(highest.get("maxTemp")) > 37
+            and to_number(highest.get("maxCont37")) >= 3
+        ):
             seen_temp.add(highest["name"])
             temp_added += 1
-            dates = self._find_temp_dates(highest, 37, high=True)
+            dates = find_temp_dates(highest, 37, high=True)
             if dates:
                 t = highest["maxTemp"]
                 entries.append(
@@ -417,20 +296,19 @@ class ReportGenerator:
 
         for c in warned_counties:
             name = c["name"]
-            temp = _number(c.get("maxTemp"))
+            temp = to_number(c.get("maxTemp"))
             if temp > 40 and name not in seen_temp:
                 seen_temp.add(name)
                 temp_added += 1
-                dates = self._find_temp_dates(c, 40, high=True)
+                dates = find_temp_dates(c, 40, high=True)
                 if dates:
                     entries.append(
-                        f"{_fmt_date_range(dates)}：{name}连续出现{temp}℃红色高温，"
-                        f"最高风险区域。"
+                        f"{_fmt_date_range(dates)}：{name}连续出现{temp}℃红色高温，最高风险区域。"
                     )
             elif temp > 37 and temp_added < 2 and c["maxCont37"] >= 3 and name not in seen_temp:
                 seen_temp.add(name)
                 temp_added += 1
-                dates = self._find_temp_dates(c, 37, high=True)
+                dates = find_temp_dates(c, 37, high=True)
                 if dates:
                     entries.append(
                         f"{_fmt_date_range(dates)}：{name}将出现连续{temp}℃高温，"
@@ -438,42 +316,39 @@ class ReportGenerator:
                     )
 
         cold = [
-            c for c in warned_counties
-            if _number(c.get("maxContBelow0")) >= 3 and not snow and not freezing
+            c
+            for c in warned_counties
+            if to_number(c.get("maxContBelow0")) >= 3 and not snow and not freezing
         ]
         for c in cold[:1]:
-            dates = self._find_temp_dates(c, 0, high=False)
+            dates = find_temp_dates(c, 0, high=False)
             if dates:
                 entries.append(
                     f"{_fmt_date_range(dates)}：{c['name']}将出现持续低温天气，"
                     f"最低{c['minTemp']}℃，0℃以下最长持续{c['maxContBelow0']}小时。"
                 )
 
-        wind = [c for c in warned_counties if _number(c.get("maxWind")) >= 8]
+        wind = [c for c in warned_counties if to_number(c.get("maxWind")) >= 8]
         for c in wind[:1]:
-            entries.append(
-                f"{c['name']}最大风力{c['maxWind']}级，"
-                f"需注意高空作业安全。"
-            )
+            entries.append(f"{c['name']}最大风力{c['maxWind']}级，需注意高空作业安全。")
 
         heavy_rain = sorted(
-            [c for c in warned_counties if _number(c.get("maxPrecip")) >= 8],
-            key=lambda c: _number(c.get("maxPrecip")), reverse=True
+            [c for c in warned_counties if to_number(c.get("maxPrecip")) >= 8],
+            key=lambda c: to_number(c.get("maxPrecip")),
+            reverse=True,
         )
         for c in heavy_rain[:1]:
-            entries.append(
-                f"{c['name']}最大小时降水{c['maxPrecip']}mm，"
-                f"需关注山洪和地质灾害风险。"
-            )
+            entries.append(f"{c['name']}最大小时降水{c['maxPrecip']}mm，需关注山洪和地质灾害风险。")
 
         rain_counties = sorted(
-            [c for c in warned_counties if _number(c.get("maxRainHours")) >= 3],
-            key=lambda c: _number(c.get("maxRainHours")), reverse=True
+            [c for c in warned_counties if to_number(c.get("maxRainHours")) >= 3],
+            key=lambda c: to_number(c.get("maxRainHours")),
+            reverse=True,
         )
         for c in rain_counties[:2]:
             name = c["name"]
             rain_hours = c["maxRainHours"]
-            rain_dates = self._find_rain_dates(c)
+            rain_dates = find_rain_dates(c)
             if rain_dates:
                 entries.append(
                     f"{_fmt_date_range(rain_dates)}：{name}将出现连续降雨过程，"
@@ -499,11 +374,21 @@ class ReportGenerator:
             parts.append("避开高温时段作业")
         if "暴雨" in hazards_global or "强降水" in hazards_global:
             parts.append("关注山洪和内涝风险")
-        if "红色大风" in hazards_global or "橙色大风" in hazards_global or "大风" in hazards_global or "强风" in hazards_global:
+        if (
+            "红色大风" in hazards_global
+            or "橙色大风" in hazards_global
+            or "大风" in hazards_global
+            or "强风" in hazards_global
+        ):
             parts.append("注意高空作业安全")
         if "冰雹" in hazards_global:
             parts.append("冰雹期间停止户外作业")
-        if "冻雨" in hazards_global or "低温结冰" in hazards_global or "道路结冰" in hazards_global or "低温" in hazards_global:
+        if (
+            "冻雨" in hazards_global
+            or "低温结冰" in hazards_global
+            or "道路结冰" in hazards_global
+            or "低温" in hazards_global
+        ):
             parts.append("注意道路结冰和防寒保暖")
         if "暴雪" in hazards_global or "降雪" in hazards_global:
             parts.append("及时清理屋顶积雪，防止机房渗漏")
@@ -522,48 +407,42 @@ class ReportGenerator:
             f"{attention}。"
         )
 
-    def _room_score(self, r):
-        return risk_score(r)
-
     def _room_focus_period(self, room):
         parts = []
         daily = room.get("dailySummary", [])
-        if _number(room.get("tmax")) > 40:
+        if to_number(room.get("tmax")) > 40:
             dates = [
-                d["date"] for d in daily
-                if _number(d.get("tmax"), None) is not None and _number(d.get("tmax")) > 40
+                d["date"]
+                for d in daily
+                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) > 40
             ]
             date_text = _fmt_date_range(dates)
             parts.append(f"{date_text}高温" if date_text else "高温")
-        elif _number(room.get("tmax")) > 37:
+        elif to_number(room.get("tmax")) > 37:
             dates = [
-                d["date"] for d in daily
-                if _number(d.get("tmax"), None) is not None and _number(d.get("tmax")) > 37
+                d["date"]
+                for d in daily
+                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) > 37
             ]
             date_text = _fmt_date_range(dates)
             parts.append(f"{date_text}高温" if date_text else "高温")
-        elif _number(room.get("maxContDaily35")) >= 3:
+        elif to_number(room.get("maxContDaily35")) >= 3:
             dates = [
-                d["date"] for d in daily
-                if _number(d.get("tmax"), None) is not None and _number(d.get("tmax")) > 35
+                d["date"]
+                for d in daily
+                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) > 35
             ]
             date_text = _fmt_date_range(dates)
             parts.append(f"{date_text}连续高温" if date_text else "连续高温")
 
-        if _number(room.get("maxRainHours")) >= 3:
-            dates = [d["date"] for d in daily if _number(d.get("precip")) > 0]
+        if to_number(room.get("maxRainHours")) >= 3:
+            dates = [d["date"] for d in daily if to_number(d.get("precip")) > 0]
             date_text = _fmt_date_range(dates)
-            parts.append(
-                f"{date_text}连续降雨"
-                if date_text else "连续降雨"
-            )
-        elif _number(room.get("maxPrecip")) >= 8:
-            dates = [d["date"] for d in daily if _number(d.get("precip")) > 0]
+            parts.append(f"{date_text}连续降雨" if date_text else "连续降雨")
+        elif to_number(room.get("maxPrecip")) >= 8:
+            dates = [d["date"] for d in daily if to_number(d.get("precip")) > 0]
             date_text = _fmt_date_range(dates)
-            parts.append(
-                f"{date_text}短时强降雨"
-                if date_text else "短时强降雨"
-            )
+            parts.append(f"{date_text}短时强降雨" if date_text else "短时强降雨")
 
         weather_parts = []
         if room.get("hasThunder"):
@@ -578,9 +457,12 @@ class ReportGenerator:
             weather_parts.append("雾霾")
         if weather_parts:
             dates = [
-                d["date"] for d in daily
-                if any(kw in d.get("textDay", "") + d.get("textNight", "")
-                       for kw in ("雷", "冰雹", "冻雨", "冰粒", "雪", "雾", "霾", "沙"))
+                d["date"]
+                for d in daily
+                if any(
+                    kw in d.get("textDay", "") + d.get("textNight", "")
+                    for kw in ("雷", "冰雹", "冻雨", "冰粒", "雪", "雾", "霾", "沙")
+                )
             ]
             date_text = _fmt_date_range(dates)
             label = "、".join(weather_parts)
@@ -597,36 +479,6 @@ class ReportGenerator:
             hazard = warning.get("typeName") or "天气"
             return f"{date_text}{hazard}预警" if date_text else f"{hazard}预警"
         return "重点风险时段待小时预报补充"
-
-    def _select_top_rooms(self, rooms_data, focus_counties, total_limit=10, county_limit=6):
-        focus_names = {c["name"] for c in focus_counties}
-        selected = []
-        selected_keys = set()
-        seen_cty = defaultdict(int)
-        sorted_rooms = sorted(rooms_data, key=lambda item: self._room_score(item), reverse=True)
-
-        for r in sorted_rooms:
-            ct = r.get("county", "")
-            if ct not in focus_names:
-                continue
-            if seen_cty[ct] >= county_limit:
-                continue
-            selected.append(r)
-            selected_keys.add((ct, r.get("name", "")))
-            seen_cty[ct] += 1
-            if len(selected) >= total_limit:
-                return selected
-
-        for r in sorted_rooms:
-            ct = r.get("county", "")
-            key = (ct, r.get("name", ""))
-            if ct not in focus_names or key in selected_keys:
-                continue
-            selected.append(r)
-            if len(selected) >= total_limit:
-                break
-
-        return selected
 
     def generate(self, weather_data):
         rooms_data = weather_data.get("counties", [])
@@ -645,28 +497,33 @@ class ReportGenerator:
             except Exception:
                 pass
 
-        county_stats = self._county_stats(rooms_data)
+        county_stats = self._aggregator.aggregate(rooms_data)
         warned_counties = [c for c in county_stats if c["warnedCount"] > 0]
         affected_count = sum(
-            1 for room in rooms_data
-            if is_focus_warning({
-                "maxTemp": room.get("tmax", 0),
-                "minTemp": room.get("tmin", 0),
-                "maxWind": room.get("maxWind", 0),
-                "maxPrecip": room.get("maxPrecip", 0),
-                "maxDailyPrecip": room.get("maxDailyPrecip", 0),
-                "maxPrecip3h": room.get("maxPrecip3h", 0),
-                "maxPrecip6h": room.get("maxPrecip6h", 0),
-                "maxPrecip12h": room.get("maxPrecip12h", 0),
-                "maxPrecip24h": room.get("maxPrecip24h", 0),
-                "maxContDaily35": room.get("maxContDaily35", 0),
-                "hasHail": room.get("hasHail", False),
-                "hasFreezing": room.get("hasFreezing", False),
-                "hasSnow": room.get("hasSnow", False),
-                "hasThunder": room.get("hasThunder", False),
-                "hasFogHaze": room.get("hasFog", False) or room.get("hasHaze", False) or room.get("hasSand", False),
-                "officialWarnings": room.get("officialWarnings", []),
-            })
+            1
+            for room in rooms_data
+            if is_focus_warning(
+                {
+                    "maxTemp": room.get("tmax", 0),
+                    "minTemp": room.get("tmin", 0),
+                    "maxWind": room.get("maxWind", 0),
+                    "maxPrecip": room.get("maxPrecip", 0),
+                    "maxDailyPrecip": room.get("maxDailyPrecip", 0),
+                    "maxPrecip3h": room.get("maxPrecip3h", 0),
+                    "maxPrecip6h": room.get("maxPrecip6h", 0),
+                    "maxPrecip12h": room.get("maxPrecip12h", 0),
+                    "maxPrecip24h": room.get("maxPrecip24h", 0),
+                    "maxContDaily35": room.get("maxContDaily35", 0),
+                    "hasHail": room.get("hasHail", False),
+                    "hasFreezing": room.get("hasFreezing", False),
+                    "hasSnow": room.get("hasSnow", False),
+                    "hasThunder": room.get("hasThunder", False),
+                    "hasFogHaze": room.get("hasFog", False)
+                    or room.get("hasHaze", False)
+                    or room.get("hasSand", False),
+                    "officialWarnings": room.get("officialWarnings", []),
+                }
+            )
         )
         overall_level = self._get_overall_level(warned_counties)
         high_risk = [c for c in warned_counties if self._is_significant_risk(c)]
@@ -699,13 +556,11 @@ class ReportGenerator:
                 lines.append(f"未来7天全市{total}个机房暂无重大天气预警。")
         if failed:
             lines.append(
-                f"数据提示：{failed}个机房日预报数据获取失败；"
-                "已获取到的官方预警仍纳入本次报告。"
+                f"数据提示：{failed}个机房日预报数据获取失败；已获取到的官方预警仍纳入本次报告。"
             )
         if daily_incomplete:
             lines.append(
-                f"数据提示：{daily_incomplete}个机房日预报字段不完整，"
-                "相关温度判断可能不完整。"
+                f"数据提示：{daily_incomplete}个机房日预报字段不完整，相关温度判断可能不完整。"
             )
         if partial_failed:
             lines.append(
@@ -714,8 +569,7 @@ class ReportGenerator:
             )
         if warning_failed:
             lines.append(
-                f"数据提示：{warning_failed}个机房未取得官方预警数据，"
-                "已按天气预报结果判断。"
+                f"数据提示：{warning_failed}个机房未取得官方预警数据，已按天气预报结果判断。"
             )
         lines.append("")
 
@@ -729,7 +583,7 @@ class ReportGenerator:
 
             lines.append("二、重点机房")
             lines.append("")
-            top_rooms = self._select_top_rooms(rooms_data, focus_counties)
+            top_rooms = select_top_rooms(rooms_data, focus_counties)
 
             by_cty = defaultdict(list)
             order = []
@@ -747,25 +601,25 @@ class ReportGenerator:
                 official_warnings = []
                 for r in rooms:
                     official_warnings.extend(r.get("officialWarnings", []))
-                official_warnings = _dedupe_warnings(official_warnings)
-                max_temp_source = _room_with_extreme(rooms, "tmax")
-                min_temp_source = _room_with_extreme(rooms, "tmin", highest=False)
+                official_warnings = dedupe_warnings(official_warnings)
+                max_temp_source = room_with_extreme(rooms, "tmax")
+                min_temp_source = room_with_extreme(rooms, "tmin", highest=False)
                 room_stats = {
                     "maxTemp": max_temp_source.get("tmax") if max_temp_source else None,
                     "minTemp": min_temp_source.get("tmin") if min_temp_source else None,
-                    "maxWind": max(_number(r.get("maxWind")) for r in rooms),
-                    "maxPrecip": max(_number(r.get("maxPrecip")) for r in rooms),
-                    "maxCont37": max(_number(r.get("maxCont37")) for r in rooms),
-                    "maxCont38": max(_number(r.get("maxCont38")) for r in rooms),
-                    "maxCont40": max(_number(r.get("maxCont40")) for r in rooms),
-                    "maxContDaily35": max(_number(r.get("maxContDaily35")) for r in rooms),
-                    "maxContBelow0": max(_number(r.get("maxContBelow0")) for r in rooms),
-                    "maxRainHours": max(_number(r.get("maxRainHours")) for r in rooms),
-                    "maxDailyPrecip": max(_number(r.get("maxDailyPrecip")) for r in rooms),
-                    "maxPrecip3h": max(_number(r.get("maxPrecip3h")) for r in rooms),
-                    "maxPrecip6h": max(_number(r.get("maxPrecip6h")) for r in rooms),
-                    "maxPrecip12h": max(_number(r.get("maxPrecip12h")) for r in rooms),
-                    "maxPrecip24h": max(_number(r.get("maxPrecip24h")) for r in rooms),
+                    "maxWind": max(to_number(r.get("maxWind")) for r in rooms),
+                    "maxPrecip": max(to_number(r.get("maxPrecip")) for r in rooms),
+                    "maxCont37": max(to_number(r.get("maxCont37")) for r in rooms),
+                    "maxCont38": max(to_number(r.get("maxCont38")) for r in rooms),
+                    "maxCont40": max(to_number(r.get("maxCont40")) for r in rooms),
+                    "maxContDaily35": max(to_number(r.get("maxContDaily35")) for r in rooms),
+                    "maxContBelow0": max(to_number(r.get("maxContBelow0")) for r in rooms),
+                    "maxRainHours": max(to_number(r.get("maxRainHours")) for r in rooms),
+                    "maxDailyPrecip": max(to_number(r.get("maxDailyPrecip")) for r in rooms),
+                    "maxPrecip3h": max(to_number(r.get("maxPrecip3h")) for r in rooms),
+                    "maxPrecip6h": max(to_number(r.get("maxPrecip6h")) for r in rooms),
+                    "maxPrecip12h": max(to_number(r.get("maxPrecip12h")) for r in rooms),
+                    "maxPrecip24h": max(to_number(r.get("maxPrecip24h")) for r in rooms),
                     "hasHail": any(r.get("hasHail") for r in rooms),
                     "hasFreezing": any(r.get("hasFreezing") for r in rooms),
                     "hasSnow": any(r.get("hasSnow") for r in rooms),
@@ -774,7 +628,7 @@ class ReportGenerator:
                     "officialWarnings": official_warnings[:5],
                 }
                 label = self._hazard_label(room_stats)
-                lines.append(f"{idx+1}. {ct}（{label}）")
+                lines.append(f"{idx + 1}. {ct}（{label}）")
                 for r in rooms:
                     lines.append(f"    * {r['name']}：{self._room_focus_period(r)}")
                 lines.append("")
@@ -782,8 +636,7 @@ class ReportGenerator:
             lines.append("三、关注过程")
             lines.append("")
             timeline = self._generate_timeline(
-                focus_counties,
-                focus_counties[0]["name"] if focus_counties else None
+                focus_counties, focus_counties[0]["name"] if focus_counties else None
             )
             for entry in timeline[:2]:
                 lines.append(f"* {entry}")

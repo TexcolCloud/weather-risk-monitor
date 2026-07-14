@@ -152,12 +152,14 @@ def evaluate_hazards(data):
         level = COLOR_BY_SCORE.get(score)
         if level:
             type_name = warning.get("typeName") or "官方预警"
-            hazards.append(_hazard(
-                _official_hazard_name(type_name, level),
-                level,
-                "qweather_warning",
-                score_bonus=80,
-            ))
+            hazards.append(
+                _hazard(
+                    _official_hazard_name(type_name, level),
+                    level,
+                    "qweather_warning",
+                    score_bonus=80,
+                )
+            )
 
     if max_temp > 40:
         hazards.append(_hazard("红色高温", "红色", "national"))
@@ -190,15 +192,20 @@ def evaluate_hazards(data):
         hazards.append(_hazard("冰雹", "红色", "telecom_attention"))
     if data.get("hasFreezing"):
         hazards.append(_hazard("冻雨", "红色", "telecom_attention"))
-    if min_temp is not None and min_temp <= 0 and (
-            data.get("hasFreezing") or data.get("hasSnow") or max_precip > 0 or max_precip_24h > 0):
+    if (
+        min_temp is not None
+        and min_temp <= 0
+        and (data.get("hasFreezing") or data.get("hasSnow") or max_precip > 0 or max_precip_24h > 0)
+    ):
         hazards.append(_hazard("道路结冰", "黄色", "telecom_attention"))
     if data.get("hasSnow"):
-        hazards.append(_hazard(
-            "暴雪" if min_temp is not None and min_temp <= -5 else "降雪",
-            "黄色",
-            "telecom_attention",
-        ))
+        hazards.append(
+            _hazard(
+                "暴雪" if min_temp is not None and min_temp <= -5 else "降雪",
+                "黄色",
+                "telecom_attention",
+            )
+        )
     if data.get("hasThunder"):
         hazards.append(_hazard("雷暴", "黄色", "telecom_attention"))
     if data.get("hasFogHaze") or data.get("hasFog") or data.get("hasHaze") or data.get("hasSand"):
