@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.selectors import select_top_rooms
+from weather_analysis.selectors import select_top_rooms
 
 
 class SelectorsTest(unittest.TestCase):

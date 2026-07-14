@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.aggregation import CountyAggregator, find_rain_dates
+from weather_analysis.aggregation import CountyAggregator, find_rain_dates
 
 
 class CountyAggregatorTest(unittest.TestCase):

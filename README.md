@@ -1,6 +1,6 @@
 # 示例区域机房天气灾害预警
 
-该工具读取 `qweather_none_agent/data/sites.example.json` 中的示例区域机房清单，调用和风天气日预报、小时预报和官方预警接口，生成供管理人员转发的极端天气风险简报。
+该工具读取 `weather_analysis/data/sites.example.json` 中的示例区域机房清单，调用和风天气日预报、小时预报和官方预警接口，生成供管理人员转发的极端天气风险简报。
 
 ## 运行
 
@@ -8,16 +8,16 @@
 
 ```powershell
 python -m pip install -e .
-qweather-none-agent
+weather-analysis
 ```
 
 清除本地天气缓存：
 
 ```powershell
-qweather-none-agent --clear-cache
+weather-analysis --clear-cache
 ```
 
-缓存默认写入项目根目录的 `.cache/`，可通过 `QWEATHER_CACHE_DIR` 指定其他目录。
+缓存默认写入项目根目录的 `.cache/`，可通过 `WEATHER_ANALYSIS_CACHE_DIR` 指定其他目录。
 
 ## 测试
 
@@ -30,7 +30,7 @@ python -m unittest discover -s tests -v
 ## 目录结构
 
 ```text
-qweather_none_agent/
+weather_analysis/
 ├── data/sites.example.json  # 示例区域机房基础数据
 ├── models.py                # 模块间数据结构
 ├── qweather_client.py       # 和风天气请求与响应归一化

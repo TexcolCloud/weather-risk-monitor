@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.weather_stats import compute_weather_stats
+from weather_analysis.weather_stats import compute_weather_stats
 
 
 def _daily(**overrides):

@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.report import ReportGenerator, _compact_warning_title
+from weather_analysis.report import ReportGenerator, _compact_warning_title
 
 
 def _generator():

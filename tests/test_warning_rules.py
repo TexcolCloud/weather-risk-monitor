@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.warning_rules import evaluate_hazards, report_level, risk_score
+from weather_analysis.warning_rules import evaluate_hazards, report_level, risk_score
 
 
 def _hazards(data):

@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from qweather_none_agent.qweather_client import QWeatherClient
-from qweather_none_agent.weather import WeatherService
+from weather_analysis.qweather_client import QWeatherClient
+from weather_analysis.weather import WeatherService
 
 
 class WeatherServiceTest(unittest.IsolatedAsyncioTestCase):

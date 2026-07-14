@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.qweather_client import normalize_warnings
+from weather_analysis.qweather_client import normalize_warnings
 
 
 class QWeatherClientTest(unittest.TestCase):
