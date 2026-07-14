@@ -9,9 +9,15 @@ if hasattr(sys.stdout, "buffer"):
 from config import SITES
 from tools.weather import WeatherTool
 from report import ReportGenerator
+import cache
 
 
 async def main():
+    if "--clear-cache" in sys.argv:
+        cache.clear()
+        print("缓存已清除。")
+        return
+
     locations = [
         {"name": r["name"],
          "lon": r["lon"],

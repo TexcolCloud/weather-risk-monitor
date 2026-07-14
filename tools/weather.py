@@ -1,9 +1,14 @@
 
 import asyncio
+import random
 import httpx
 from config import QWEATHER_API_KEY, QWEATHER_BASE_URL, FORECAST_DAYS, HOURLY_HOURS
+import cache
 
 MAX_CONCURRENT = 50
+MAX_RETRIES = 3
+BACKOFF_BASE = 2.0
+BACKOFF_MAX_C = 8
 
 WEATHER_KEYWORDS = {
     "thunder": ("雷", "雷暴"),
@@ -12,7 +17,7 @@ WEATHER_KEYWORDS = {
     "hail": ("冰雹",),
     "fog": ("雾",),
     "haze": ("霾",),
-    "sand": ("沙尘暴", "沙尘", "扬沙"),
+    "sand": ("沙尘暴", "沙尘", "扬沙", "浮尘"),
 }
 
 WARNING_KEYS = [
@@ -21,74 +26,107 @@ WARNING_KEYS = [
 ]
 
 
+def _backoff_delay(c):
+    c = min(c, BACKOFF_MAX_C)
+    base = BACKOFF_BASE ** c
+    jitter = random.randint(0, (2 ** c) - 1) if c > 0 else 0
+    return base + jitter
+
+
+def _safe_int(val, default=0):
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(val, default=0.0):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 class WeatherTool:
-    name = "get_weather_data"
-    description = "批量获取多个机房的7天逐日+逐时预报数据。"
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "counties": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "机房名称"},
-                        "location": {"type": "string", "description": "经纬度"},
-                        "county": {"type": "string", "description": "所属县区"}
-                    },
-                    "required": ["name", "location"]
-                },
-                "description": "机房列表"
-            }
-        },
-        "required": ["counties"]
-    }
-
-    @staticmethod
-    def tool_spec():
-        return {
-            "type": "function",
-            "function": {
-                "name": WeatherTool.name,
-                "description": WeatherTool.description,
-                "parameters": WeatherTool.parameters
-            }
-        }
 
     @staticmethod
     def _loc(c):
-        if "location" in c:
-            return c["location"]
-        return f"{c['lon']:.2f},{c['lat']:.2f}"
+        lat = c.get("lat", 0)
+        lon = c.get("lon", 0)
+        return f"{lon:.2f},{lat:.2f}"
 
     @staticmethod
-    async def _fetch(client, sem, url, params):
-        async with sem:
-            try:
-                resp = await client.get(url, params=params, timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
-                return data if data.get("code") == "200" else None
-            except Exception:
-                return None
+    async def _fetch(client, sem, url, params, lat, lon, endpoint, ttl):
+        cached = cache.get(lat, lon, endpoint, ttl)
+        if cached is not None:
+            return cached
+
+        consecutive = 0
+        for _ in range(MAX_RETRIES):
+            async with sem:
+                try:
+                    resp = await client.get(url, params=params, timeout=10)
+                    code = resp.status_code
+
+                    if code == 429:
+                        consecutive += 1
+                        delay = _backoff_delay(consecutive)
+                        await asyncio.sleep(delay)
+                        continue
+
+                    if code == 403 or code == 400:
+                        return None
+
+                    if code == 200:
+                        data = resp.json()
+                        if isinstance(data, dict) and data.get("code") == "200":
+                            cache.set(lat, lon, endpoint, data)
+                            return data
+                        if consecutive > 0:
+                            consecutive = 0
+                        continue
+
+                    return None
+
+                except httpx.TimeoutException:
+                    consecutive += 1
+                    await asyncio.sleep(_backoff_delay(consecutive))
+                except Exception:
+                    consecutive += 1
+                    await asyncio.sleep(_backoff_delay(consecutive))
+
+        return None
 
     @staticmethod
     def _compute_stats(daily, hourly):
-        tmax = max(int(d["tempMax"]) for d in daily)
-        tmin = min(int(d["tempMin"]) for d in daily)
-        total_precip = sum(float(d["precip"]) for d in daily)
-        rain_days = sum(1 for d in daily if float(d["precip"]) > 0)
-        max_wind = max(int(d["windScaleDay"].split("-")[-1]) for d in daily)
+        if not isinstance(daily, list) or not daily:
+            return _empty_stats()
+
+        try:
+            tmax = max(_safe_int(d.get("tempMax", 0)) for d in daily)
+            tmin = min(_safe_int(d.get("tempMin", 0)) for d in daily)
+            total_precip = sum(_safe_float(d.get("precip", 0)) for d in daily)
+            rain_days = sum(1 for d in daily if _safe_float(d.get("precip", 0)) > 0)
+            max_wind = 0
+            for d in daily:
+                ws = d.get("windScaleDay", "0-0")
+                if isinstance(ws, str) and "-" in ws:
+                    max_wind = max(max_wind, _safe_int(ws.split("-")[-1]))
+        except Exception:
+            return _empty_stats()
 
         daily_summary = []
         for d in daily:
             daily_summary.append({
-                "date": d["fxDate"],
-                "tmax": int(d["tempMax"]), "tmin": int(d["tempMin"]),
-                "textDay": d["textDay"], "textNight": d["textNight"],
-                "windDay": d["windScaleDay"], "windNight": d["windScaleNight"],
-                "precip": float(d["precip"]), "humidity": d["humidity"],
+                "date": d.get("fxDate", ""),
+                "tmax": _safe_int(d.get("tempMax", 0)),
+                "tmin": _safe_int(d.get("tempMin", 0)),
+                "textDay": d.get("textDay", ""),
+                "textNight": d.get("textNight", ""),
+                "windDay": d.get("windScaleDay", ""),
+                "windNight": d.get("windScaleNight", ""),
+                "precip": _safe_float(d.get("precip", 0)),
+                "humidity": d.get("humidity", ""),
             })
 
         hours_above_40 = max_cont_40 = cur_40 = 0
@@ -99,11 +137,13 @@ class WeatherTool:
         max_rain_hours = cur_rain = max_precip = 0
         flags = {k: False for k in WARNING_KEYS}
 
-        if hourly:
+        if isinstance(hourly, list):
             for h in hourly:
-                t = float(h["temp"])
-                p = float(h["precip"])
-                txt = h["text"]
+                if not isinstance(h, dict):
+                    continue
+                t = _safe_float(h.get("temp", 0))
+                p = _safe_float(h.get("precip", 0))
+                txt = h.get("text", "")
                 if t >= 40:
                     hours_above_40 += 1; cur_40 += 1
                     max_cont_40 = max(max_cont_40, cur_40)
@@ -165,16 +205,19 @@ class WeatherTool:
         sem = asyncio.Semaphore(MAX_CONCURRENT)
         headers = {"X-QW-API-KEY": QWEATHER_API_KEY}
         params_base = {"lang": "zh"}
-        county_map = {c["name"]: c for c in counties}
 
         async with httpx.AsyncClient(headers=headers, limits=httpx.Limits(
             max_connections=MAX_CONCURRENT, max_keepalive_connections=20
         )) as client:
             daily_tasks = {}
             for c in counties:
+                lat = c.get("lat", 0)
+                lon = c.get("lon", 0)
                 url = f"{QWEATHER_BASE_URL}/{FORECAST_DAYS}"
                 p = {**params_base, "location": WeatherTool._loc(c)}
-                daily_tasks[c["name"]] = WeatherTool._fetch(client, sem, url, p)
+                daily_tasks[c["name"]] = WeatherTool._fetch(
+                    client, sem, url, p, lat, lon, "7d", cache.DAILY_TTL
+                )
 
             daily_results = dict(zip(
                 daily_tasks.keys(),
@@ -184,14 +227,25 @@ class WeatherTool:
             hourly_tasks = {}
             date_ranges = {}
             for name, data in daily_results.items():
-                if not data:
+                if not isinstance(data, dict):
                     continue
-                c = county_map[name]
+                daily = data.get("daily")
+                if not isinstance(daily, list) or not daily:
+                    continue
+                c = _find_county(counties, name)
+                if not c:
+                    continue
+                lat = c.get("lat", 0)
+                lon = c.get("lon", 0)
                 url = f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h"
                 p = {**params_base, "location": WeatherTool._loc(c)}
-                d = data["daily"]
-                date_ranges[name] = (d[0]["fxDate"], d[-1]["fxDate"])
-                hourly_tasks[name] = WeatherTool._fetch(client, sem, url, p)
+                date_ranges[name] = (
+                    daily[0].get("fxDate", ""),
+                    daily[-1].get("fxDate", "")
+                )
+                hourly_tasks[name] = WeatherTool._fetch(
+                    client, sem, url, p, lat, lon, "168h", cache.HOURLY_TTL
+                )
 
             hourly_results = {}
             if hourly_tasks:
@@ -205,18 +259,23 @@ class WeatherTool:
         for c in counties:
             name = c["name"]
             data = daily_results.get(name)
-            if not data:
+            if not isinstance(data, dict):
                 continue
             if not result["updateTime"]:
                 result["updateTime"] = data.get("updateTime")
 
-            daily = data["daily"]
+            daily = data.get("daily")
+            if not isinstance(daily, list) or not daily:
+                continue
+
             hourly = None
             hr = hourly_results.get(name)
-            if hr:
-                start, end = date_ranges[name]
-                hourly = [h for h in hr["hourly"]
-                          if start <= h["fxTime"][:10] <= end]
+            if isinstance(hr, dict):
+                start, end = date_ranges.get(name, ("", ""))
+                hourly_list = hr.get("hourly", [])
+                if isinstance(hourly_list, list) and start and end:
+                    hourly = [h for h in hourly_list
+                              if isinstance(h, dict) and start <= h.get("fxTime", "")[:10] <= end]
 
             stats = WeatherTool._compute_stats(daily, hourly)
             if WeatherTool._has_warning(stats):
@@ -228,3 +287,30 @@ class WeatherTool:
                 })
 
         return result
+
+
+def _empty_stats():
+    return {
+        "tmax": 0, "tmin": 0,
+        "totalPrecip": 0, "rainDays": 0,
+        "maxWind": 0,
+        "hoursAbove40": 0, "maxCont40": 0,
+        "hoursAbove38": 0, "maxCont38": 0,
+        "hoursAbove37": 0, "maxCont37": 0,
+        "hoursAbove35": 0,
+        "hoursBelow0": 0, "hoursBelow5": 0,
+        "maxContBelow0": 0,
+        "maxRainHours": 0, "maxPrecip": 0,
+        "dailySummary": [],
+        "hasThunder": False, "hasSnow": False, "hasFreezing": False,
+        "hasHail": False, "hasFog": False, "hasHaze": False, "hasSand": False,
+    }
+
+
+_COUNTY_MAP = {}
+
+def _find_county(counties, name):
+    for c in counties:
+        if c.get("name") == name:
+            return c
+    return None
