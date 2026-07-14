@@ -5,11 +5,11 @@ import tempfile
 import time
 from pathlib import Path
 
-_DEFAULT_CACHE_ROOT = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".cache"))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CACHE_DIR = Path(
     os.environ.get(
         "QWEATHER_CACHE_DIR",
-        _DEFAULT_CACHE_ROOT / "qweather-none-agent",
+        _PROJECT_ROOT / ".cache",
     )
 )
 

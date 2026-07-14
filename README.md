@@ -17,7 +17,7 @@ qweather-none-agent
 qweather-none-agent --clear-cache
 ```
 
-缓存默认写入当前用户缓存目录，可通过 `QWEATHER_CACHE_DIR` 指定其他目录。
+缓存默认写入项目根目录的 `.cache/`，可通过 `QWEATHER_CACHE_DIR` 指定其他目录。
 
 ## 测试
 
