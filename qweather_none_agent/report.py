@@ -26,6 +26,13 @@ def _fmt_date_range(dates):
     return f"{first}至{last}"
 
 
+def _compact_warning_title(title):
+    text = (title or "").strip()
+    for marker in ("发布", "解除"):
+        text = text.replace(marker, "")
+    return text
+
+
 class ReportGenerator:
 
     def __init__(self, locations, region="示例区域"):
@@ -136,6 +143,9 @@ class ReportGenerator:
             if hazard not in labels:
                 labels.append(hazard)
 
+        if len(labels) > 1 and "官方预警" in labels:
+            labels.remove("官方预警")
+
         if c.get("maxRainHours", 0) >= 3 and "连续降雨" not in labels:
             rain_index = next(
                 (i for i, label in enumerate(labels) if label in ("暴雨", "强降水")),
@@ -163,6 +173,7 @@ class ReportGenerator:
         has_thunder = c.get("hasThunder", False)
         has_fog = c.get("hasFogHaze", False)
         official_title = c.get("officialWarningTitle", "")
+        official_level = c.get("officialWarningLevel", "")
 
         hazard_types = self._hazard_type(c)
         if not hazard_types:
@@ -171,8 +182,35 @@ class ReportGenerator:
 
         prefix = f"* {name}："
         desc_parts = []
+        temp_added = False
 
-        if is_highest and temp < 40:
+        def append_high_temp():
+            nonlocal temp_added
+            if temp_added:
+                return
+            temp_added = True
+            if temp > 40:
+                high_dates = self._find_temp_dates(c, 40, high=True)
+                cont = c.get("maxCont40", 0)
+                date_str = _fmt_date_range(high_dates)
+                if date_str:
+                    desc_parts.append(f"{date_str}最高{temp}℃")
+                else:
+                    desc_parts.append(f"最高{temp}℃")
+                if cont > 0:
+                    desc_parts.append(f"40℃以上持续约{cont}小时")
+            elif temp > 37:
+                desc_parts.append(f"最高{temp}℃")
+                cont = c.get("maxCont38", 0) if temp > 38 else c.get("maxCont37", 0)
+                cont_label = "38℃以上" if temp > 38 else "37℃以上"
+                if cont > 0:
+                    desc_parts.append(f"{cont_label}持续约{cont}小时")
+            elif c.get("maxContDaily35", 0) >= 3:
+                dates = self._find_temp_dates(c, 35, high=True)
+                date_str = _fmt_date_range(dates)
+                desc_parts.append(f"{date_str}连续高温" if date_str else "连续高温")
+
+        if is_highest:
             desc_parts.append("风险最高")
 
         if warned == total and total > 1:
@@ -181,28 +219,13 @@ class ReportGenerator:
             desc_parts.append(f"涉及{warned}/{total}个机房")
 
         if primary_hazard in ("红色高温", "橙色高温", "高温"):
-            if temp > 40:
-                high_dates = self._find_temp_dates(c, 40, high=True)
-                cont = c["maxCont40"]
-                date_str = _fmt_date_range(high_dates)
-                if date_str:
-                    desc_parts.append(f"{date_str}将出现{temp}℃{primary_hazard}")
-                else:
-                    desc_parts.append(f"最高{temp}℃")
-                if cont > 0:
-                    desc_parts.append(f"40℃以上最长持续{cont}小时")
-            else:
-                desc_parts.append(f"最高{temp}℃")
-                cont = c["maxCont38"] if temp > 38 else c["maxCont37"]
-                cont_label = "38℃以上" if temp > 38 else "37℃以上"
-                if cont > 0:
-                    desc_parts.append(f"{cont_label}最长持续{cont}小时")
+            append_high_temp()
 
         elif primary_hazard in ("低温结冰", "道路结冰", "低温"):
             desc_parts.append(f"最低{min_temp}℃")
             cont = c["maxContBelow0"]
             if cont > 0:
-                desc_parts.append(f"0℃以下最长持续{cont}小时")
+                desc_parts.append(f"0℃以下持续约{cont}小时")
 
         elif primary_hazard in ("冰雹",):
             dates = self._find_weather_dates(c, ("冰雹",))
@@ -232,7 +255,7 @@ class ReportGenerator:
             desc_parts.append(f"最大风力{max_wind}级")
 
         elif primary_hazard in ("暴雨", "强降水"):
-            desc_parts.append("将出现强降水过程")
+            desc_parts.append("有短时强降雨")
 
         elif primary_hazard in ("雷暴",):
             if has_thunder:
@@ -241,6 +264,12 @@ class ReportGenerator:
         elif primary_hazard in ("雾霾",):
             if has_fog:
                 desc_parts.append("将出现雾霾天气")
+
+        if not temp_added and (
+                any(ht in ("红色高温", "橙色高温", "高温") for ht, _ in hazard_types)
+                or temp > 37
+                or c.get("maxContDaily35", 0) >= 3):
+            append_high_temp()
 
         for ht, level in hazard_types[1:]:
             if ht in ("红色高温", "橙色高温", "高温"):
@@ -253,7 +282,7 @@ class ReportGenerator:
                 desc_parts.append(f"最大风力{max_wind}级")
                 continue
             if ht in ("暴雨", "强降水") and max_precip > 0:
-                desc_parts.append(f"最大小时降水{max_precip:g}mm")
+                desc_parts.append("伴有短时强降雨")
                 continue
             if ht in ("雷暴",) and has_thunder:
                 desc_parts.append("伴有雷暴")
@@ -263,10 +292,10 @@ class ReportGenerator:
                 continue
 
         if rain_hours > 0:
-            desc_parts.append("并有连续降雨过程")
+            desc_parts.append("伴有连续降雨")
         if max_precip >= 8 and primary_hazard not in ("暴雨", "强降水") and not any(
-                part.startswith("最大小时降水") for part in desc_parts):
-            desc_parts.append(f"最大小时降水{max_precip:g}mm")
+                "短时强降雨" in part for part in desc_parts):
+            desc_parts.append("伴有短时强降雨")
         if has_thunder and "伴有雷暴" not in desc_parts:
             desc_parts.append("伴有雷暴")
         if max_wind >= 6 and primary_hazard not in ("红色大风", "橙色大风", "大风", "强风") and not any(
@@ -274,8 +303,9 @@ class ReportGenerator:
             desc_parts.append(f"最大风力{max_wind}级")
         if has_fog and "有雾霾天气" not in desc_parts:
             desc_parts.append("有雾霾天气")
-        if official_title:
-            desc_parts.append(official_title)
+        compact_title = _compact_warning_title(official_title)
+        if compact_title and (official_level == "红色" or "红色" in compact_title):
+            desc_parts.append(compact_title)
 
         return prefix + "，".join(desc_parts) + "。"
 
@@ -437,23 +467,15 @@ class ReportGenerator:
 
     def _room_focus_period(self, room):
         parts = []
-        warnings = room.get("officialWarnings") or []
-        if warnings:
-            title = warnings[0].get("title") or warnings[0].get("typeName") or "官方预警"
-            pub_time = warnings[0].get("pubTime", "")
-            date_part = pub_time.split("T")[0] if "T" in pub_time else pub_time[:10]
-            date_text = _fmt_date(date_part) if date_part else ""
-            parts.append(f"{date_text}{title}" if date_text else title)
-
         daily = room.get("dailySummary", [])
         if room.get("tmax", 0) > 40:
             dates = [d["date"] for d in daily if d.get("tmax", 0) > 40]
             date_text = _fmt_date_range(dates)
-            parts.append(f"{date_text}40℃以上高温" if date_text else "40℃以上高温")
+            parts.append(f"{date_text}高温" if date_text else "高温")
         elif room.get("tmax", 0) > 37:
             dates = [d["date"] for d in daily if d.get("tmax", 0) > 37]
             date_text = _fmt_date_range(dates)
-            parts.append(f"{date_text}37℃以上高温" if date_text else "37℃以上高温")
+            parts.append(f"{date_text}高温" if date_text else "高温")
         elif room.get("maxContDaily35", 0) >= 3:
             dates = [d["date"] for d in daily if d.get("tmax", 0) > 35]
             date_text = _fmt_date_range(dates)
@@ -463,15 +485,15 @@ class ReportGenerator:
             dates = [d["date"] for d in daily if float(d.get("precip", 0)) > 0]
             date_text = _fmt_date_range(dates)
             parts.append(
-                f"{date_text}连续降雨{room['maxRainHours']}小时"
-                if date_text else f"连续降雨{room['maxRainHours']}小时"
+                f"{date_text}连续降雨"
+                if date_text else "连续降雨"
             )
         elif room.get("maxPrecip", 0) >= 8:
             dates = [d["date"] for d in daily if float(d.get("precip", 0)) > 0]
             date_text = _fmt_date_range(dates)
             parts.append(
-                f"{date_text}最大小时降水{room['maxPrecip']:g}mm"
-                if date_text else f"最大小时降水{room['maxPrecip']:g}mm"
+                f"{date_text}短时强降雨"
+                if date_text else "短时强降雨"
             )
 
         weather_parts = []

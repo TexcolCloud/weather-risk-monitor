@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.report import ReportGenerator
+from qweather_none_agent.report import ReportGenerator, _compact_warning_title
 
 
 def _generator():
@@ -48,6 +48,12 @@ def _room(**overrides):
 
 
 class ReportGeneratorTest(unittest.TestCase):
+    def test_compact_warning_title_removes_publish_word(self):
+        self.assertEqual(
+            "示例区域02气象台高温红色预警",
+            _compact_warning_title("示例区域02气象台发布高温红色预警"),
+        )
+
     def test_no_warning_report_does_not_crash(self):
         report = _generator().generate({
             "counties": [],
@@ -90,7 +96,10 @@ class ReportGeneratorTest(unittest.TestCase):
         })
 
         self.assertIn("C（橙色高温、强降水）", report)
-        self.assertIn("最大小时降水11.1mm", report)
+        risk_section = report.split("二、重点机房")[0]
+        self.assertNotIn("最大小时降水", risk_section)
+        self.assertIn("伴有短时强降雨", report)
+        self.assertIn("伴有连续降雨", report)
         self.assertIn("伴有雷暴", report)
 
     def test_top_rooms_are_not_evenly_capped_at_three_per_county(self):
@@ -146,8 +155,8 @@ class ReportGeneratorTest(unittest.TestCase):
             "updateTime": "2026-07-14T00:00+08:00",
         })
 
-        self.assertIn("A：7月14日37℃以上高温", report)
-        self.assertIn("7月15日连续降雨3小时", report)
+        self.assertIn("A：7月14日高温", report)
+        self.assertIn("7月15日连续降雨", report)
 
 
 if __name__ == "__main__":
