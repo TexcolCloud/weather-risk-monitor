@@ -25,6 +25,8 @@ WARNING_KEYS = [
     "hasFog", "hasHaze", "hasSand",
 ]
 
+_SEVERE_KEYS = {"hasHail", "hasFreezing", "hasSnow"}
+
 
 def _backoff_delay(c):
     c = min(c, BACKOFF_MAX_C)
@@ -45,6 +47,9 @@ def _safe_float(val, default=0.0):
         return float(val)
     except (TypeError, ValueError):
         return default
+
+
+SEVERE_KEYS = ["hasHail", "hasFreezing", "hasSnow"]
 
 
 class WeatherTool:
@@ -196,9 +201,9 @@ class WeatherTool:
 
     @staticmethod
     def _has_warning(stats):
-        return (stats["tmax"] >= 37 or stats["tmin"] <= 0
+        return (stats["tmax"] >= 38 or stats["tmin"] <= 0
                 or stats["maxPrecip"] >= 16 or stats["maxWind"] >= 6
-                or any(stats[k] for k in WARNING_KEYS))
+                or any(stats[k] for k in _SEVERE_KEYS))
 
     @staticmethod
     async def run(counties):
