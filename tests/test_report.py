@@ -80,6 +80,19 @@ class ReportGeneratorTest(unittest.TestCase):
         self.assertIn("数据获取不完整", report)
         self.assertNotIn("天气状况良好", report)
 
+    def test_room_heading_and_risk_text_include_combined_hazards(self):
+        report = _generator().generate({
+            "counties": [
+                _room(maxPrecip=11.1, maxRainHours=3, hasThunder=True),
+            ],
+            "total": 1,
+            "updateTime": "2026-07-14T00:00+08:00",
+        })
+
+        self.assertIn("C（橙色高温、强降水、连续降雨、雷暴）", report)
+        self.assertIn("最大小时降水11.1mm", report)
+        self.assertIn("伴有雷暴", report)
+
 
 if __name__ == "__main__":
     unittest.main()

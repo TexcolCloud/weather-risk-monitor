@@ -5,6 +5,7 @@ import re
 import httpx
 from .config import QWEATHER_API_KEY, QWEATHER_BASE_URL, FORECAST_DAYS, HOURLY_HOURS
 from . import cache
+from .standards import is_warning
 
 MAX_CONCURRENT = 50
 MAX_RETRIES = 3
@@ -25,9 +26,6 @@ WARNING_KEYS = [
     "hasThunder", "hasSnow", "hasFreezing", "hasHail",
     "hasFog", "hasHaze", "hasSand",
 ]
-
-_SEVERE_KEYS = {"hasHail", "hasFreezing", "hasSnow"}
-
 
 def _backoff_delay(c):
     c = min(c, BACKOFF_MAX_C)
@@ -57,7 +55,18 @@ def _wind_scale_max(val):
     return max(_safe_int(n) for n in numbers)
 
 
-SEVERE_KEYS = ["hasHail", "hasFreezing", "hasSnow"]
+def _max_rolling_sum(values, window):
+    if not values:
+        return 0.0
+    best = cur = 0.0
+    queue = []
+    for val in values:
+        queue.append(val)
+        cur += val
+        if len(queue) > window:
+            cur -= queue.pop(0)
+        best = max(best, cur)
+    return round(best, 1)
 
 
 class WeatherTool:
@@ -122,8 +131,15 @@ class WeatherTool:
             tmin = min(_safe_int(d.get("tempMin", 0)) for d in daily)
             total_precip = sum(_safe_float(d.get("precip", 0)) for d in daily)
             rain_days = sum(1 for d in daily if _safe_float(d.get("precip", 0)) > 0)
+            max_daily_precip = max(_safe_float(d.get("precip", 0)) for d in daily)
+            max_cont_daily_35 = cur_daily_35 = 0
             max_wind = 0
             for d in daily:
+                if _safe_int(d.get("tempMax", 0)) > 35:
+                    cur_daily_35 += 1
+                    max_cont_daily_35 = max(max_cont_daily_35, cur_daily_35)
+                else:
+                    cur_daily_35 = 0
                 max_wind = max(
                     max_wind,
                     _wind_scale_max(d.get("windScaleDay", "")),
@@ -152,6 +168,7 @@ class WeatherTool:
         hours_above_35 = 0
         hours_below_0 = hours_below_5 = max_cont_below0 = cur_below0 = 0
         max_rain_hours = cur_rain = max_precip = 0
+        hourly_precip = []
         flags = {k: False for k in WARNING_KEYS}
 
         if isinstance(hourly, list):
@@ -160,23 +177,24 @@ class WeatherTool:
                     continue
                 t = _safe_float(h.get("temp", 0))
                 p = _safe_float(h.get("precip", 0))
+                hourly_precip.append(p)
                 txt = h.get("text", "")
-                if t >= 40:
+                if t > 40:
                     hours_above_40 += 1; cur_40 += 1
                     max_cont_40 = max(max_cont_40, cur_40)
                 else:
                     cur_40 = 0
-                if t >= 38:
+                if t > 38:
                     hours_above_38 += 1; cur_38 += 1
                     max_cont_38 = max(max_cont_38, cur_38)
                 else:
                     cur_38 = 0
-                if t >= 37:
+                if t > 37:
                     hours_above_37 += 1; cur_37 += 1
                     max_cont_37 = max(max_cont_37, cur_37)
                 else:
                     cur_37 = 0
-                if t >= 35:
+                if t > 35:
                     hours_above_35 += 1
                 if t <= 0:
                     hours_below_0 += 1; cur_below0 += 1
@@ -196,26 +214,34 @@ class WeatherTool:
                     if not flags[k] and any(kw in txt for kw in keywords):
                         flags[k] = True
 
+        max_precip_3h = _max_rolling_sum(hourly_precip, 3)
+        max_precip_6h = _max_rolling_sum(hourly_precip, 6)
+        max_precip_12h = _max_rolling_sum(hourly_precip, 12)
+        max_precip_24h = _max_rolling_sum(hourly_precip, 24)
+        if not hourly_precip:
+            max_precip_24h = round(max_daily_precip, 1)
+
         return {
             "tmax": tmax, "tmin": tmin,
             "totalPrecip": total_precip, "rainDays": rain_days,
+            "maxDailyPrecip": max_daily_precip,
             "maxWind": max_wind,
             "hoursAbove40": hours_above_40, "maxCont40": max_cont_40,
             "hoursAbove38": hours_above_38, "maxCont38": max_cont_38,
             "hoursAbove37": hours_above_37, "maxCont37": max_cont_37,
-            "hoursAbove35": hours_above_35,
+            "hoursAbove35": hours_above_35, "maxContDaily35": max_cont_daily_35,
             "hoursBelow0": hours_below_0, "hoursBelow5": hours_below_5,
             "maxContBelow0": max_cont_below0,
             "maxRainHours": max_rain_hours, "maxPrecip": max_precip,
+            "maxPrecip3h": max_precip_3h, "maxPrecip6h": max_precip_6h,
+            "maxPrecip12h": max_precip_12h, "maxPrecip24h": max_precip_24h,
             "dailySummary": daily_summary,
             **flags,
         }
 
     @staticmethod
     def _has_warning(stats):
-        return (stats["tmax"] >= 38 or stats["tmin"] <= 0
-                or stats["maxPrecip"] >= 16 or stats["maxWind"] >= 6
-                or any(stats[k] for k in _SEVERE_KEYS))
+        return is_warning(stats)
 
     @staticmethod
     async def run(counties):
@@ -316,15 +342,17 @@ class WeatherTool:
 def _empty_stats():
     return {
         "tmax": 0, "tmin": 0,
-        "totalPrecip": 0, "rainDays": 0,
+        "totalPrecip": 0, "rainDays": 0, "maxDailyPrecip": 0,
         "maxWind": 0,
         "hoursAbove40": 0, "maxCont40": 0,
         "hoursAbove38": 0, "maxCont38": 0,
         "hoursAbove37": 0, "maxCont37": 0,
-        "hoursAbove35": 0,
+        "hoursAbove35": 0, "maxContDaily35": 0,
         "hoursBelow0": 0, "hoursBelow5": 0,
         "maxContBelow0": 0,
         "maxRainHours": 0, "maxPrecip": 0,
+        "maxPrecip3h": 0, "maxPrecip6h": 0,
+        "maxPrecip12h": 0, "maxPrecip24h": 0,
         "dailySummary": [],
         "hasThunder": False, "hasSnow": False, "hasFreezing": False,
         "hasHail": False, "hasFog": False, "hasHaze": False, "hasSand": False,

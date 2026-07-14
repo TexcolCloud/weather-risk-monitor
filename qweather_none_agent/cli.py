@@ -28,12 +28,6 @@ async def main():
         for r in SITES
     ]
 
-    print("=" * 60)
-    print("  示例区域机房施工天气评估")
-    print("=" * 60)
-    print(f"  覆盖机房: {len(locations)} 个")
-    print()
-
     weather_data = await WeatherTool.run(locations)
 
     generator = ReportGenerator(locations, region="示例区域")
