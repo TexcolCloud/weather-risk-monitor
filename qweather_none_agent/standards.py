@@ -55,12 +55,22 @@ def _value(data, *names, default=0):
     return default
 
 
+def _number(data, *names, default=0):
+    value = _value(data, *names, default=None)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _temp_max(data):
-    return _value(data, "maxTemp", "tmax")
+    return _number(data, "maxTemp", "tmax")
 
 
 def _temp_min(data):
-    return _value(data, "minTemp", "tmin")
+    return _number(data, "minTemp", "tmin", default=None)
 
 
 def _hazard(name, level, source, score_bonus=0):
@@ -87,6 +97,10 @@ def _official_hazard_name(type_name, level):
         if level == "橙色":
             return "橙色大风"
         return "大风"
+    if "暴雨" in type_name or "强降水" in type_name:
+        return "暴雨"
+    if "雷" in type_name:
+        return "雷暴"
     return type_name or "官方预警"
 
 
@@ -119,22 +133,31 @@ def evaluate_hazards(data):
 
     max_temp = _temp_max(data)
     min_temp = _temp_min(data)
-    max_wind = _value(data, "maxWind")
-    max_precip = _value(data, "maxPrecip")
-    max_precip_3h = _value(data, "maxPrecip3h")
-    max_precip_6h = _value(data, "maxPrecip6h")
-    max_precip_12h = _value(data, "maxPrecip12h")
-    max_precip_24h = _value(data, "maxPrecip24h", "maxDailyPrecip")
-    max_cont_daily_35 = _value(data, "maxContDaily35")
+    max_wind = _number(data, "maxWind")
+    max_precip = _number(data, "maxPrecip")
+    max_precip_3h = _number(data, "maxPrecip3h")
+    max_precip_6h = _number(data, "maxPrecip6h")
+    max_precip_12h = _number(data, "maxPrecip12h")
+    max_precip_24h = _number(data, "maxPrecip24h", "maxDailyPrecip")
+    max_cont_daily_35 = _number(data, "maxContDaily35")
 
     official_warnings = data.get("officialWarnings") or []
-    if official_warnings:
-        top = max(official_warnings, key=lambda w: w.get("levelScore", 0))
-        score = int(top.get("levelScore") or 0)
+    for warning in official_warnings:
+        if not isinstance(warning, dict):
+            continue
+        try:
+            score = int(warning.get("levelScore") or 0)
+        except (TypeError, ValueError):
+            score = 0
         level = COLOR_BY_SCORE.get(score)
         if level:
-            type_name = top.get("typeName") or "官方预警"
-            hazards.append(_hazard(_official_hazard_name(type_name, level), level, "qweather_warning", score_bonus=80))
+            type_name = warning.get("typeName") or "官方预警"
+            hazards.append(_hazard(
+                _official_hazard_name(type_name, level),
+                level,
+                "qweather_warning",
+                score_bonus=80,
+            ))
 
     if max_temp > 40:
         hazards.append(_hazard("红色高温", "红色", "national"))
@@ -167,11 +190,15 @@ def evaluate_hazards(data):
         hazards.append(_hazard("冰雹", "红色", "telecom_attention"))
     if data.get("hasFreezing"):
         hazards.append(_hazard("冻雨", "红色", "telecom_attention"))
-    if min_temp <= 0 and (
+    if min_temp is not None and min_temp <= 0 and (
             data.get("hasFreezing") or data.get("hasSnow") or max_precip > 0 or max_precip_24h > 0):
         hazards.append(_hazard("道路结冰", "黄色", "telecom_attention"))
     if data.get("hasSnow"):
-        hazards.append(_hazard("暴雪" if min_temp <= -5 else "降雪", "黄色", "telecom_attention"))
+        hazards.append(_hazard(
+            "暴雪" if min_temp is not None and min_temp <= -5 else "降雪",
+            "黄色",
+            "telecom_attention",
+        ))
     if data.get("hasThunder"):
         hazards.append(_hazard("雷暴", "黄色", "telecom_attention"))
     if data.get("hasFogHaze") or data.get("hasFog") or data.get("hasHaze") or data.get("hasSand"):
@@ -199,13 +226,21 @@ def report_level(items):
 
 
 def risk_score(data):
+    """Return a severity-first key suitable for descending risk sorting."""
     hazards = evaluate_hazards(data)
-    score = max((h["score"] for h in hazards), default=0)
-    score += min(_value(data, "warnedCount"), 100)
-    score += min(_value(data, "maxCont37") * 5, 50)
-    score += min(_value(data, "maxRainHours") * 4, 40)
-    score += min(_value(data, "maxPrecip") * 2, 60)
-    return score
+    primary = max(
+        hazards,
+        key=lambda hazard: (hazard["severity"], hazard["score"]),
+        default={"severity": 0, "score": 0},
+    )
+    return (
+        primary["severity"],
+        primary["score"],
+        min(_number(data, "warnedCount"), 100),
+        min(_number(data, "maxCont37"), 24),
+        min(_number(data, "maxRainHours"), 24),
+        min(_number(data, "maxPrecip"), 100),
+    )
 
 
 def is_warning(data):

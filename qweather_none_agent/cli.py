@@ -16,7 +16,7 @@ async def main():
     if "--clear-cache" in sys.argv:
         cache.clear()
         print("缓存已清除。")
-        return
+        return 0
 
     locations = [
         {
@@ -33,10 +33,15 @@ async def main():
     generator = ReportGenerator(locations, region="示例区域")
     report = generator.generate(weather_data)
     print(report)
+    if weather_data.get("total", 0) and weather_data.get("failed", 0) >= weather_data["total"]:
+        return 2
+    return 0
 
 
 def run():
-    asyncio.run(main())
+    exit_code = asyncio.run(main())
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

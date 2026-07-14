@@ -1,6 +1,6 @@
 import unittest
 
-from qweather_none_agent.standards import evaluate_hazards, report_level
+from qweather_none_agent.standards import evaluate_hazards, report_level, risk_score
 from qweather_none_agent.weather import WeatherTool
 
 
@@ -48,7 +48,35 @@ class StandardsTest(unittest.TestCase):
             }]
         })
 
-        self.assertIn(("雷电", "橙色"), hazards)
+        self.assertIn(("雷暴", "橙色"), hazards)
+
+    def test_all_official_warning_types_are_kept(self):
+        hazards = _hazards({
+            "officialWarnings": [
+                {"typeName": "高温", "levelScore": 4},
+                {"typeName": "暴雨", "levelScore": 3},
+            ]
+        })
+
+        self.assertIn(("红色高温", "红色"), hazards)
+        self.assertIn(("暴雨", "橙色"), hazards)
+
+    def test_risk_sorting_never_places_orange_above_red(self):
+        red = {"tmax": 41, "warnedCount": 1}
+        orange = {
+            "tmax": 38,
+            "warnedCount": 100,
+            "maxCont37": 10,
+            "maxRainHours": 10,
+            "maxPrecip": 30,
+        }
+
+        self.assertGreater(risk_score(red), risk_score(orange))
+
+    def test_missing_minimum_temperature_does_not_create_icing_warning(self):
+        hazards = _hazards({"tmin": None, "maxPrecip24h": 5})
+
+        self.assertNotIn(("道路结冰", "黄色"), hazards)
 
     def test_official_high_temperature_warning_dedupes_local_heat_label(self):
         hazards = _hazards({
@@ -74,9 +102,24 @@ class StandardsTest(unittest.TestCase):
             "windScaleNight": "1-2",
         }]
         hourly = [
-            {"temp": "20", "precip": "20", "text": "雨"},
-            {"temp": "20", "precip": "15", "text": "雨"},
-            {"temp": "20", "precip": "15", "text": "雨"},
+            {
+                "fxTime": "2026-07-14T00:00+08:00",
+                "temp": "20",
+                "precip": "20",
+                "text": "雨",
+            },
+            {
+                "fxTime": "2026-07-14T01:00+08:00",
+                "temp": "20",
+                "precip": "15",
+                "text": "雨",
+            },
+            {
+                "fxTime": "2026-07-14T02:00+08:00",
+                "temp": "20",
+                "precip": "15",
+                "text": "雨",
+            },
         ]
 
         stats = WeatherTool._compute_stats(daily, hourly)

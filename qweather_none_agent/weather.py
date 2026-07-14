@@ -1,7 +1,11 @@
 
 import asyncio
+import logging
 import random
 import re
+from collections import deque
+from datetime import datetime, timedelta
+
 import httpx
 from .config import (
     QWEATHER_API_KEY,
@@ -12,6 +16,9 @@ from .config import (
 )
 from . import cache
 from .standards import is_warning
+
+
+logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT = 50
 MAX_RETRIES = 3
@@ -69,6 +76,15 @@ def _safe_float(val, default=0.0):
         return default
 
 
+def _parse_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _wind_scale_max(val):
     numbers = re.findall(r"\d+", str(val))
     if not numbers:
@@ -76,17 +92,45 @@ def _wind_scale_max(val):
     return max(_safe_int(n) for n in numbers)
 
 
-def _max_rolling_sum(values, window):
-    if not values:
+def _prepare_hourly(hourly):
+    if not isinstance(hourly, list) or not hourly:
+        return [], False
+
+    by_time = {}
+    complete = True
+    for item in hourly:
+        if not isinstance(item, dict):
+            complete = False
+            continue
+        fx_time = _parse_time(item.get("fxTime"))
+        if fx_time is None:
+            complete = False
+            continue
+        if fx_time in by_time:
+            complete = False
+        by_time[fx_time] = item
+
+    records = sorted(by_time.items(), key=lambda item: item[0])
+    if not records:
+        return [], False
+    for index in range(1, len(records)):
+        if records[index][0] - records[index - 1][0] != timedelta(hours=1):
+            complete = False
+    return records, complete
+
+
+def _max_rolling_sum(records, window):
+    if not records:
         return 0.0
-    best = cur = 0.0
-    queue = []
-    for val in values:
-        queue.append(val)
-        cur += val
-        if len(queue) > window:
-            cur -= queue.pop(0)
-        best = max(best, cur)
+    best = current = 0.0
+    queue = deque()
+    for fx_time, value in records:
+        queue.append((fx_time, value))
+        current += value
+        cutoff = fx_time - timedelta(hours=window)
+        while queue and queue[0][0] <= cutoff:
+            current -= queue.popleft()[1]
+        best = max(best, current)
     return round(best, 1)
 
 
@@ -160,8 +204,8 @@ class WeatherTool:
 
     @staticmethod
     def _loc(c):
-        lat = c.get("lat", 0)
-        lon = c.get("lon", 0)
+        lat = _safe_float(c.get("lat"), 0.0)
+        lon = _safe_float(c.get("lon"), 0.0)
         return f"{lon:.2f},{lat:.2f}"
 
     @staticmethod
@@ -183,6 +227,7 @@ class WeatherTool:
                     delay = _backoff_delay(consecutive)
 
                 elif code == 403 or code == 400:
+                    logger.warning("天气接口拒绝请求: endpoint=%s status=%s", endpoint, code)
                     return None
 
                 elif code == 200:
@@ -193,13 +238,19 @@ class WeatherTool:
                     consecutive += 1
                     delay = _backoff_delay(consecutive)
 
+                elif code >= 500:
+                    consecutive += 1
+                    delay = _backoff_delay(consecutive)
+
                 else:
+                    logger.warning("天气接口返回异常状态: endpoint=%s status=%s", endpoint, code)
                     return None
 
             except httpx.TimeoutException:
                 consecutive += 1
                 delay = _backoff_delay(consecutive)
             except Exception:
+                logger.exception("天气接口请求异常: endpoint=%s", endpoint)
                 consecutive += 1
                 delay = _backoff_delay(consecutive)
 
@@ -213,34 +264,52 @@ class WeatherTool:
         if not isinstance(daily, list) or not daily:
             return _empty_stats()
 
-        try:
-            tmax = max(_safe_int(d.get("tempMax", 0)) for d in daily)
-            tmin = min(_safe_int(d.get("tempMin", 0)) for d in daily)
-            total_precip = sum(_safe_float(d.get("precip", 0)) for d in daily)
-            rain_days = sum(1 for d in daily if _safe_float(d.get("precip", 0)) > 0)
-            max_daily_precip = max(_safe_float(d.get("precip", 0)) for d in daily)
-            max_cont_daily_35 = cur_daily_35 = 0
-            max_wind = 0
-            for d in daily:
-                if _safe_int(d.get("tempMax", 0)) > 35:
-                    cur_daily_35 += 1
-                    max_cont_daily_35 = max(max_cont_daily_35, cur_daily_35)
-                else:
-                    cur_daily_35 = 0
-                max_wind = max(
-                    max_wind,
-                    _wind_scale_max(d.get("windScaleDay", "")),
-                    _wind_scale_max(d.get("windScaleNight", "")),
-                )
-        except Exception:
+        daily_records = [item for item in daily if isinstance(item, dict)]
+        if not daily_records:
             return _empty_stats()
 
+        tmax_values = [
+            value for value in (_safe_int(d.get("tempMax"), None) for d in daily_records)
+            if value is not None
+        ]
+        tmin_values = [
+            value for value in (_safe_int(d.get("tempMin"), None) for d in daily_records)
+            if value is not None
+        ]
+        precip_values = [max(_safe_float(d.get("precip"), 0.0), 0.0) for d in daily_records]
+        tmax = max(tmax_values) if tmax_values else None
+        tmin = min(tmin_values) if tmin_values else None
+        total_precip = sum(precip_values)
+        rain_days = sum(1 for value in precip_values if value > 0)
+        max_daily_precip = max(precip_values, default=0.0)
+        max_cont_daily_35 = cur_daily_35 = 0
+        max_wind = 0
+        flags = {key: False for key in WARNING_KEYS}
+
+        for d in daily_records:
+            daily_tmax = _safe_int(d.get("tempMax"), None)
+            if daily_tmax is not None and daily_tmax > 35:
+                cur_daily_35 += 1
+                max_cont_daily_35 = max(max_cont_daily_35, cur_daily_35)
+            else:
+                cur_daily_35 = 0
+            max_wind = max(
+                max_wind,
+                _wind_scale_max(d.get("windScaleDay", "")),
+                _wind_scale_max(d.get("windScaleNight", "")),
+            )
+            full_text = f"{d.get('textDay', '')}{d.get('textNight', '')}"
+            for key, keywords in WEATHER_KEYWORDS.items():
+                flag = f"has{key[0].upper()}{key[1:]}"
+                if not flags[flag] and any(keyword in full_text for keyword in keywords):
+                    flags[flag] = True
+
         daily_summary = []
-        for d in daily:
+        for d in daily_records:
             daily_summary.append({
                 "date": d.get("fxDate", ""),
-                "tmax": _safe_int(d.get("tempMax", 0)),
-                "tmin": _safe_int(d.get("tempMin", 0)),
+                "tmax": _safe_int(d.get("tempMax"), None),
+                "tmin": _safe_int(d.get("tempMin"), None),
                 "textDay": d.get("textDay", ""),
                 "textNight": d.get("textNight", ""),
                 "windDay": d.get("windScaleDay", ""),
@@ -255,58 +324,71 @@ class WeatherTool:
         hours_above_35 = 0
         hours_below_0 = hours_below_5 = max_cont_below0 = cur_below0 = 0
         max_rain_hours = cur_rain = max_precip = 0
+        hourly_records, hourly_complete = _prepare_hourly(hourly)
+        expected_dates = {d.get("fxDate") for d in daily_records if d.get("fxDate")}
+        hourly_dates = {fx_time.date().isoformat() for fx_time, _ in hourly_records}
+        if expected_dates and not expected_dates.issubset(hourly_dates):
+            hourly_complete = False
         hourly_precip = []
-        flags = {k: False for k in WARNING_KEYS}
+        previous_time = None
 
-        if isinstance(hourly, list):
-            for h in hourly:
-                if not isinstance(h, dict):
-                    continue
-                t = _safe_float(h.get("temp", 0))
-                p = _safe_float(h.get("precip", 0))
-                hourly_precip.append(p)
-                txt = h.get("text", "")
-                if t > 40:
-                    hours_above_40 += 1; cur_40 += 1
-                    max_cont_40 = max(max_cont_40, cur_40)
-                else:
-                    cur_40 = 0
-                if t > 38:
-                    hours_above_38 += 1; cur_38 += 1
-                    max_cont_38 = max(max_cont_38, cur_38)
-                else:
-                    cur_38 = 0
-                if t > 37:
-                    hours_above_37 += 1; cur_37 += 1
-                    max_cont_37 = max(max_cont_37, cur_37)
-                else:
-                    cur_37 = 0
-                if t > 35:
-                    hours_above_35 += 1
-                if t <= 0:
-                    hours_below_0 += 1; cur_below0 += 1
-                    max_cont_below0 = max(max_cont_below0, cur_below0)
-                else:
-                    cur_below0 = 0
-                if t <= 5:
-                    hours_below_5 += 1
-                if p > 0:
-                    cur_rain += 1
-                    max_rain_hours = max(max_rain_hours, cur_rain)
-                    max_precip = max(max_precip, p)
-                else:
-                    cur_rain = 0
-                for key, keywords in WEATHER_KEYWORDS.items():
-                    k = f"has{key[0].upper()}{key[1:]}"
-                    if not flags[k] and any(kw in txt for kw in keywords):
-                        flags[k] = True
+        for fx_time, h in hourly_records:
+            contiguous = previous_time is not None and fx_time - previous_time == timedelta(hours=1)
+            if not contiguous:
+                cur_40 = cur_38 = cur_37 = cur_below0 = cur_rain = 0
+            previous_time = fx_time
+
+            t = _safe_float(h.get("temp"), None)
+            p = _safe_float(h.get("precip"), None)
+            if t is None or p is None:
+                hourly_complete = False
+            precip = max(p or 0.0, 0.0)
+            hourly_precip.append((fx_time, precip))
+            txt = h.get("text", "")
+            if t is not None and t > 40:
+                hours_above_40 += 1
+                cur_40 += 1
+                max_cont_40 = max(max_cont_40, cur_40)
+            else:
+                cur_40 = 0
+            if t is not None and t > 38:
+                hours_above_38 += 1
+                cur_38 += 1
+                max_cont_38 = max(max_cont_38, cur_38)
+            else:
+                cur_38 = 0
+            if t is not None and t > 37:
+                hours_above_37 += 1
+                cur_37 += 1
+                max_cont_37 = max(max_cont_37, cur_37)
+            else:
+                cur_37 = 0
+            if t is not None and t > 35:
+                hours_above_35 += 1
+            if t is not None and t <= 0:
+                hours_below_0 += 1
+                cur_below0 += 1
+                max_cont_below0 = max(max_cont_below0, cur_below0)
+            else:
+                cur_below0 = 0
+            if t is not None and t <= 5:
+                hours_below_5 += 1
+            if p is not None and p > 0:
+                cur_rain += 1
+                max_rain_hours = max(max_rain_hours, cur_rain)
+                max_precip = max(max_precip, p)
+            else:
+                cur_rain = 0
+            for key, keywords in WEATHER_KEYWORDS.items():
+                flag = f"has{key[0].upper()}{key[1:]}"
+                if not flags[flag] and any(keyword in txt for keyword in keywords):
+                    flags[flag] = True
 
         max_precip_3h = _max_rolling_sum(hourly_precip, 3)
         max_precip_6h = _max_rolling_sum(hourly_precip, 6)
         max_precip_12h = _max_rolling_sum(hourly_precip, 12)
         max_precip_24h = _max_rolling_sum(hourly_precip, 24)
-        if not hourly_precip:
-            max_precip_24h = round(max_daily_precip, 1)
+        max_precip_24h = max(max_precip_24h, round(max_daily_precip, 1))
 
         return {
             "tmax": tmax, "tmin": tmin,
@@ -323,6 +405,12 @@ class WeatherTool:
             "maxPrecip3h": max_precip_3h, "maxPrecip6h": max_precip_6h,
             "maxPrecip12h": max_precip_12h, "maxPrecip24h": max_precip_24h,
             "dailySummary": daily_summary,
+            "dailyDataComplete": (
+                len(daily_records) == len(daily)
+                and len(tmax_values) == len(daily_records)
+                and len(tmin_values) == len(daily_records)
+            ),
+            "hourlyDataComplete": hourly_complete,
             **flags,
         }
 
@@ -332,9 +420,15 @@ class WeatherTool:
 
     @staticmethod
     async def run(counties):
+        names = [c.get("name") for c in counties]
+        if any(not name for name in names) or len(names) != len(set(names)):
+            raise ValueError("机房名称不能为空且必须唯一")
+
         sem = asyncio.Semaphore(MAX_CONCURRENT)
         headers = {"X-QW-API-KEY": QWEATHER_API_KEY}
         params_base = {"lang": "zh"}
+        counties_by_name = {c["name"]: c for c in counties}
+        warning_key_by_name = {}
 
         async with httpx.AsyncClient(headers=headers, limits=httpx.Limits(
             max_connections=MAX_CONCURRENT, max_keepalive_connections=20
@@ -349,9 +443,13 @@ class WeatherTool:
                 daily_tasks[c["name"]] = WeatherTool._fetch(
                     client, sem, url, p, lat, lon, "7d", cache.DAILY_TTL
                 )
-                warning_tasks[c["name"]] = WeatherTool._fetch(
-                    client, sem, QWEATHER_WARNING_URL, p, lat, lon, "warning", cache.WARNING_TTL
-                )
+                warning_key = c.get("county") or c["name"]
+                warning_key_by_name[c["name"]] = warning_key
+                if warning_key not in warning_tasks:
+                    warning_tasks[warning_key] = WeatherTool._fetch(
+                        client, sem, QWEATHER_WARNING_URL, p, lat, lon,
+                        "warning", cache.WARNING_TTL
+                    )
 
             daily_results = dict(zip(
                 daily_tasks.keys(),
@@ -367,12 +465,10 @@ class WeatherTool:
             for name, data in daily_results.items():
                 if not isinstance(data, dict):
                     continue
-                daily = data.get("daily")
-                if not isinstance(daily, list) or not daily:
+                daily = [item for item in data.get("daily", []) if isinstance(item, dict)]
+                if not daily:
                     continue
-                c = _find_county(counties, name)
-                if not c:
-                    continue
+                c = counties_by_name[name]
                 lat = c.get("lat", 0)
                 lon = c.get("lon", 0)
                 url = f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h"
@@ -392,38 +488,62 @@ class WeatherTool:
                     await asyncio.gather(*hourly_tasks.values())
                 ))
 
-        result = {"counties": [], "updateTime": None,
-                  "total": len(counties), "warned": 0,
-                  "failed": 0, "partialFailed": 0, "failedRooms": []}
+        result = {
+            "counties": [],
+            "updateTime": None,
+            "total": len(counties),
+            "warned": 0,
+            "failed": 0,
+            "partialFailed": 0,
+            "warningFailed": 0,
+            "dailyIncomplete": 0,
+            "failedRooms": [],
+            "partialFailedRooms": [],
+            "warningFailedRooms": [],
+            "dailyIncompleteRooms": [],
+        }
         for c in counties:
             name = c["name"]
             data = daily_results.get(name)
-            if not isinstance(data, dict):
+            daily = data.get("daily") if isinstance(data, dict) else None
+            daily_ok = isinstance(daily, list) and any(isinstance(item, dict) for item in daily)
+            if not daily_ok:
                 result["failed"] += 1
                 result["failedRooms"].append(name)
-                continue
-            if not result["updateTime"]:
-                result["updateTime"] = data.get("updateTime")
-
-            daily = data.get("daily")
-            if not isinstance(daily, list) or not daily:
-                result["failed"] += 1
-                result["failedRooms"].append(name)
-                continue
 
             hourly = None
-            hr = hourly_results.get(name)
-            if isinstance(hr, dict):
-                start, end = date_ranges.get(name, ("", ""))
-                hourly_list = hr.get("hourly", [])
-                if isinstance(hourly_list, list) and start and end:
-                    hourly = [h for h in hourly_list
-                              if isinstance(h, dict) and start <= h.get("fxTime", "")[:10] <= end]
-            elif name in hourly_tasks:
-                result["partialFailed"] += 1
+            if daily_ok:
+                if not result["updateTime"]:
+                    result["updateTime"] = data.get("updateTime")
+                hr = hourly_results.get(name)
+                if isinstance(hr, dict):
+                    start, end = date_ranges.get(name, ("", ""))
+                    hourly_list = hr.get("hourly", [])
+                    if isinstance(hourly_list, list) and start and end:
+                        hourly = [
+                            item for item in hourly_list
+                            if isinstance(item, dict)
+                            and start <= str(item.get("fxTime", ""))[:10] <= end
+                        ]
+                stats = WeatherTool._compute_stats(daily, hourly)
+                if not stats["dailyDataComplete"]:
+                    result["dailyIncomplete"] += 1
+                    result["dailyIncompleteRooms"].append(name)
+                if not stats["hourlyDataComplete"]:
+                    result["partialFailed"] += 1
+                    result["partialFailedRooms"].append(name)
+            else:
+                stats = _empty_stats()
 
-            stats = WeatherTool._compute_stats(daily, hourly)
-            official_warnings = _normalize_warnings(warning_results.get(name))
+            warning_key = warning_key_by_name[name]
+            warning_data = warning_results.get(warning_key)
+            if not isinstance(warning_data, dict):
+                result["warningFailed"] += 1
+                result["warningFailedRooms"].append(name)
+            elif not result["updateTime"]:
+                result["updateTime"] = warning_data.get("updateTime")
+
+            official_warnings = _normalize_warnings(warning_data)
             if official_warnings:
                 stats["officialWarnings"] = official_warnings
                 stats["officialWarningLevel"] = official_warnings[0]["color"]
@@ -441,7 +561,7 @@ class WeatherTool:
 
 def _empty_stats():
     return {
-        "tmax": 0, "tmin": 0,
+        "tmax": None, "tmin": None,
         "totalPrecip": 0, "rainDays": 0, "maxDailyPrecip": 0,
         "maxWind": 0,
         "hoursAbove40": 0, "maxCont40": 0,
@@ -457,12 +577,8 @@ def _empty_stats():
         "officialWarningLevel": "",
         "officialWarningTitle": "",
         "dailySummary": [],
+        "dailyDataComplete": False,
+        "hourlyDataComplete": False,
         "hasThunder": False, "hasSnow": False, "hasFreezing": False,
         "hasHail": False, "hasFog": False, "hasHaze": False, "hasSand": False,
     }
-
-def _find_county(counties, name):
-    for c in counties:
-        if c.get("name") == name:
-            return c
-    return None

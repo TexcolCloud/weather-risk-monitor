@@ -158,6 +158,57 @@ class ReportGeneratorTest(unittest.TestCase):
         self.assertIn("A：7月14日高温", report)
         self.assertIn("7月15日连续降雨", report)
 
+    def test_county_timeline_uses_the_room_that_produced_the_maximum(self):
+        locations = [
+            {"name": "A", "county": "C", "lon": 1, "lat": 1},
+            {"name": "B", "county": "C", "lon": 2, "lat": 2},
+        ]
+        generator = ReportGenerator(locations, region="R")
+        first = _room(
+            name="A",
+            maxPrecip=1,
+            maxRainHours=1,
+            dailySummary=[{
+                "date": "2026-07-14",
+                "tmax": 38,
+                "tmin": 20,
+                "precip": 1,
+                "textDay": "雨",
+                "textNight": "雨",
+            }],
+        )
+        maximum = _room(
+            name="B",
+            maxPrecip=10,
+            maxRainHours=9,
+            dailySummary=[{
+                "date": "2026-07-16",
+                "tmax": 38,
+                "tmin": 20,
+                "precip": 10,
+                "textDay": "雨",
+                "textNight": "雨",
+            }],
+        )
+
+        county = generator._county_stats([first, maximum])[0]
+        timeline = generator._generate_timeline([county])
+
+        self.assertIn("7月16日", "\n".join(timeline))
+        self.assertNotIn("7月14日：C将出现连续降雨过程", "\n".join(timeline))
+
+    def test_official_warning_time_is_used_when_forecast_period_is_missing(self):
+        room = _room(
+            tmax=None,
+            dailySummary=[],
+            officialWarnings=[{
+                "typeName": "高温",
+                "pubTime": "2026-07-14T08:00+08:00",
+            }],
+        )
+
+        self.assertEqual("7月14日高温预警", _generator()._room_focus_period(room))
+
 
 if __name__ == "__main__":
     unittest.main()

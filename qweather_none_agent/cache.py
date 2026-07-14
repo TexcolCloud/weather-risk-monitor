@@ -1,10 +1,16 @@
 
 import json
+import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
-_CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / ".cache"
+_DEFAULT_CACHE_ROOT = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".cache"))
+_CACHE_DIR = Path(os.environ.get(
+    "QWEATHER_CACHE_DIR",
+    _DEFAULT_CACHE_ROOT / "qweather-none-agent",
+))
 
 DAILY_TTL = 3 * 60 * 60       # 3 hours
 HOURLY_TTL = 45 * 60          # 45 minutes
@@ -32,11 +38,18 @@ def get(lat, lon, endpoint, ttl):
 def set(lat, lon, endpoint, payload):
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     filepath = _CACHE_DIR / f"{_key(lat, lon, endpoint)}.json"
+    temporary = None
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump({"_ct": time.time(), "_pl": payload}, f, ensure_ascii=False)
+        with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=_CACHE_DIR, delete=False) as file:
+            temporary = Path(file.name)
+            json.dump({"_ct": time.time(), "_pl": payload}, file, ensure_ascii=False)
+        os.replace(temporary, filepath)
     except Exception:
         pass
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink(missing_ok=True)
 
 
 def clear():
