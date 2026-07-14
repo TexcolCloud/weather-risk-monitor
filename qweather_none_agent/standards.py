@@ -21,6 +21,13 @@ REPORT_LEVEL = {
     "提示": "一般关注",
 }
 
+COLOR_BY_SCORE = {
+    1: "蓝色",
+    2: "黄色",
+    3: "橙色",
+    4: "红色",
+}
+
 HAZARD_PRIORITY = {
     "冰雹": 120,
     "冻雨": 115,
@@ -67,6 +74,46 @@ def _hazard(name, level, source, score_bonus=0):
     }
 
 
+def _official_hazard_name(type_name, level):
+    if "高温" in type_name:
+        if level == "红色":
+            return "红色高温"
+        if level == "橙色":
+            return "橙色高温"
+        return "高温"
+    if "大风" in type_name:
+        if level == "红色":
+            return "红色大风"
+        if level == "橙色":
+            return "橙色大风"
+        return "大风"
+    return type_name or "官方预警"
+
+
+def _hazard_category(name):
+    if "高温" in name:
+        return "高温"
+    if "大风" in name or name == "强风":
+        return "大风"
+    if name in {"暴雨", "强降水"}:
+        return "降水"
+    if name in {"冻雨", "道路结冰"}:
+        return "结冰"
+    if name in {"暴雪", "降雪"}:
+        return "降雪"
+    return name
+
+
+def _dedupe_hazards(hazards):
+    by_category = {}
+    for hazard in hazards:
+        category = _hazard_category(hazard["name"])
+        current = by_category.get(category)
+        if current is None or hazard["score"] > current["score"]:
+            by_category[category] = hazard
+    return list(by_category.values())
+
+
 def evaluate_hazards(data):
     hazards = []
 
@@ -79,6 +126,15 @@ def evaluate_hazards(data):
     max_precip_12h = _value(data, "maxPrecip12h")
     max_precip_24h = _value(data, "maxPrecip24h", "maxDailyPrecip")
     max_cont_daily_35 = _value(data, "maxContDaily35")
+
+    official_warnings = data.get("officialWarnings") or []
+    if official_warnings:
+        top = max(official_warnings, key=lambda w: w.get("levelScore", 0))
+        score = int(top.get("levelScore") or 0)
+        level = COLOR_BY_SCORE.get(score)
+        if level:
+            type_name = top.get("typeName") or "官方预警"
+            hazards.append(_hazard(_official_hazard_name(type_name, level), level, "qweather_warning", score_bonus=80))
 
     if max_temp > 40:
         hazards.append(_hazard("红色高温", "红色", "national"))
@@ -121,6 +177,7 @@ def evaluate_hazards(data):
     if data.get("hasFogHaze") or data.get("hasFog") or data.get("hasHaze") or data.get("hasSand"):
         hazards.append(_hazard("雾霾", "黄色", "telecom_attention"))
 
+    hazards = _dedupe_hazards(hazards)
     hazards.sort(key=lambda h: (h["severity"], h["priority"]), reverse=True)
     return hazards
 

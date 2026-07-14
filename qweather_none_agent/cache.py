@@ -8,6 +8,7 @@ _CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / ".cache"
 
 DAILY_TTL = 3 * 60 * 60       # 3 hours
 HOURLY_TTL = 45 * 60          # 45 minutes
+WARNING_TTL = 15 * 60         # 15 minutes
 
 
 def _key(lat, lon, endpoint):

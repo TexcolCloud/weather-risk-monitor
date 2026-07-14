@@ -48,6 +48,10 @@ class ReportGenerator:
         for ct, rooms in by_county.items():
             tmax_list = [r["tmax"] for r in rooms]
             tmin_list = [r["tmin"] for r in rooms]
+            official_warnings = []
+            for r in rooms:
+                official_warnings.extend(r.get("officialWarnings", []))
+            official_warnings.sort(key=lambda w: w.get("levelScore", 0), reverse=True)
             total_rooms = len(self.rooms_by_county.get(ct, rooms))
             stats.append({
                 "name": ct,
@@ -75,6 +79,9 @@ class ReportGenerator:
                 "hasFreezing": any(r["hasFreezing"] for r in rooms),
                 "hasHail": any(r["hasHail"] for r in rooms),
                 "hasFogHaze": any(r["hasFog"] or r["hasHaze"] or r["hasSand"] for r in rooms),
+                "officialWarnings": official_warnings[:5],
+                "officialWarningLevel": official_warnings[0]["color"] if official_warnings else "",
+                "officialWarningTitle": official_warnings[0]["title"] if official_warnings else "",
                 "rooms": self.rooms_by_county.get(ct, [r["name"] for r in rooms]),
                 "sampleRoom": rooms[0],
             })
@@ -155,6 +162,7 @@ class ReportGenerator:
         max_precip = c.get("maxPrecip", 0)
         has_thunder = c.get("hasThunder", False)
         has_fog = c.get("hasFogHaze", False)
+        official_title = c.get("officialWarningTitle", "")
 
         hazard_types = self._hazard_type(c)
         if not hazard_types:
@@ -266,6 +274,8 @@ class ReportGenerator:
             desc_parts.append(f"最大风力{max_wind}级")
         if has_fog and "有雾霾天气" not in desc_parts:
             desc_parts.append("有雾霾天气")
+        if official_title:
+            desc_parts.append(f"官方预警：{official_title}")
 
         return prefix + "，".join(desc_parts) + "。"
 
@@ -520,6 +530,10 @@ class ReportGenerator:
                 has_fog = any(r.get("hasFog") for r in rooms)
                 has_haze = any(r.get("hasHaze") for r in rooms)
                 has_sand = any(r.get("hasSand") for r in rooms)
+                official_warnings = []
+                for r in rooms:
+                    official_warnings.extend(r.get("officialWarnings", []))
+                official_warnings.sort(key=lambda w: w.get("levelScore", 0), reverse=True)
                 room_stats = {
                     "maxTemp": max(r.get("tmax", 0) for r in rooms),
                     "minTemp": min(r.get("tmin", 0) for r in rooms),
@@ -541,6 +555,7 @@ class ReportGenerator:
                     "hasSnow": any(r.get("hasSnow") for r in rooms),
                     "hasThunder": any(r.get("hasThunder") for r in rooms),
                     "hasFogHaze": has_fog or has_haze or has_sand,
+                    "officialWarnings": official_warnings[:5],
                 }
                 label = self._hazard_label(room_stats)
                 lines.append(f"{idx+1}. {ct}（{label}）")

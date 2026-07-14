@@ -3,7 +3,13 @@ import asyncio
 import random
 import re
 import httpx
-from .config import QWEATHER_API_KEY, QWEATHER_BASE_URL, FORECAST_DAYS, HOURLY_HOURS
+from .config import (
+    QWEATHER_API_KEY,
+    QWEATHER_BASE_URL,
+    QWEATHER_WARNING_URL,
+    FORECAST_DAYS,
+    HOURLY_HOURS,
+)
 from . import cache
 from .standards import is_warning
 
@@ -20,6 +26,21 @@ WEATHER_KEYWORDS = {
     "fog": ("雾",),
     "haze": ("霾",),
     "sand": ("沙尘暴", "沙尘", "扬沙", "浮尘"),
+}
+
+WARNING_COLOR_LEVELS = {
+    "white": 0,
+    "blue": 1,
+    "green": 1,
+    "yellow": 2,
+    "orange": 3,
+    "red": 4,
+    "白色": 0,
+    "蓝色": 1,
+    "绿色": 1,
+    "黄色": 2,
+    "橙色": 3,
+    "红色": 4,
 }
 
 WARNING_KEYS = [
@@ -67,6 +88,72 @@ def _max_rolling_sum(values, window):
             cur -= queue.pop(0)
         best = max(best, cur)
     return round(best, 1)
+
+
+def _warning_color(raw):
+    if isinstance(raw, dict):
+        raw = raw.get("code") or raw.get("name") or raw.get("color")
+    color = str(raw or "").strip().lower()
+    if color.isdigit():
+        numeric = int(color)
+        return {1: "蓝色", 2: "黄色", 3: "橙色", 4: "红色"}.get(numeric, "")
+    mapping = {
+        "blue": "蓝色",
+        "green": "蓝色",
+        "yellow": "黄色",
+        "orange": "橙色",
+        "red": "红色",
+        "白色": "白色",
+        "蓝色": "蓝色",
+        "绿色": "蓝色",
+        "黄色": "黄色",
+        "橙色": "橙色",
+        "红色": "红色",
+    }
+    return mapping.get(color, str(raw or "").strip())
+
+
+def _warning_level(color):
+    return WARNING_COLOR_LEVELS.get(str(color or "").strip().lower(), 0)
+
+
+def _normalize_warnings(data):
+    if not isinstance(data, dict):
+        return []
+    raw_warnings = data.get("warning")
+    if raw_warnings is None:
+        raw_warnings = data.get("alerts")
+    if not isinstance(raw_warnings, list):
+        return []
+
+    warnings = []
+    for item in raw_warnings:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "").lower()
+        if status in {"cancel", "cancelled", "解除", "已解除"}:
+            continue
+        color = _warning_color(
+            item.get("severityColor")
+            or item.get("color")
+            or item.get("severity")
+            or item.get("level")
+        )
+        title = item.get("title") or item.get("headline") or ""
+        type_name = item.get("typeName") or item.get("eventType") or item.get("type") or ""
+        warnings.append({
+            "id": item.get("id") or item.get("identifier") or "",
+            "title": title,
+            "typeName": type_name,
+            "level": item.get("level") or item.get("severity") or "",
+            "color": color,
+            "levelScore": _warning_level(color),
+            "text": item.get("text") or item.get("description") or item.get("instruction") or "",
+            "sender": item.get("sender") or item.get("senderName") or "",
+            "pubTime": item.get("pubTime") or item.get("sent") or item.get("effective") or "",
+        })
+    warnings.sort(key=lambda w: w["levelScore"], reverse=True)
+    return warnings
 
 
 class WeatherTool:
@@ -253,6 +340,7 @@ class WeatherTool:
             max_connections=MAX_CONCURRENT, max_keepalive_connections=20
         )) as client:
             daily_tasks = {}
+            warning_tasks = {}
             for c in counties:
                 lat = c.get("lat", 0)
                 lon = c.get("lon", 0)
@@ -261,10 +349,17 @@ class WeatherTool:
                 daily_tasks[c["name"]] = WeatherTool._fetch(
                     client, sem, url, p, lat, lon, "7d", cache.DAILY_TTL
                 )
+                warning_tasks[c["name"]] = WeatherTool._fetch(
+                    client, sem, QWEATHER_WARNING_URL, p, lat, lon, "warning", cache.WARNING_TTL
+                )
 
             daily_results = dict(zip(
                 daily_tasks.keys(),
                 await asyncio.gather(*daily_tasks.values())
+            ))
+            warning_results = dict(zip(
+                warning_tasks.keys(),
+                await asyncio.gather(*warning_tasks.values())
             ))
 
             hourly_tasks = {}
@@ -328,6 +423,11 @@ class WeatherTool:
                 result["partialFailed"] += 1
 
             stats = WeatherTool._compute_stats(daily, hourly)
+            official_warnings = _normalize_warnings(warning_results.get(name))
+            if official_warnings:
+                stats["officialWarnings"] = official_warnings
+                stats["officialWarningLevel"] = official_warnings[0]["color"]
+                stats["officialWarningTitle"] = official_warnings[0]["title"]
             if WeatherTool._has_warning(stats):
                 result["warned"] += 1
                 result["counties"].append({
@@ -353,6 +453,9 @@ def _empty_stats():
         "maxRainHours": 0, "maxPrecip": 0,
         "maxPrecip3h": 0, "maxPrecip6h": 0,
         "maxPrecip12h": 0, "maxPrecip24h": 0,
+        "officialWarnings": [],
+        "officialWarningLevel": "",
+        "officialWarningTitle": "",
         "dailySummary": [],
         "hasThunder": False, "hasSnow": False, "hasFreezing": False,
         "hasHail": False, "hasFog": False, "hasHaze": False, "hasSand": False,

@@ -38,6 +38,32 @@ class StandardsTest(unittest.TestCase):
 
         self.assertEqual("红色预警", level)
 
+    def test_official_warning_can_raise_hazard_level(self):
+        hazards = _hazards({
+            "officialWarnings": [{
+                "typeName": "雷电",
+                "color": "橙色",
+                "levelScore": 3,
+                "title": "雷电橙色预警",
+            }]
+        })
+
+        self.assertIn(("雷电", "橙色"), hazards)
+
+    def test_official_high_temperature_warning_dedupes_local_heat_label(self):
+        hazards = _hazards({
+            "tmax": 39,
+            "officialWarnings": [{
+                "typeName": "高温",
+                "color": "红色",
+                "levelScore": 4,
+                "title": "高温红色预警",
+            }]
+        })
+
+        self.assertIn(("红色高温", "红色"), hazards)
+        self.assertNotIn(("橙色高温", "橙色"), hazards)
+
     def test_weather_stats_compute_rolling_precipitation(self):
         daily = [{
             "fxDate": "2026-07-14",
