@@ -1,9 +1,10 @@
 
 import asyncio
 import random
+import re
 import httpx
-from config import QWEATHER_API_KEY, QWEATHER_BASE_URL, FORECAST_DAYS, HOURLY_HOURS
-import cache
+from .config import QWEATHER_API_KEY, QWEATHER_BASE_URL, FORECAST_DAYS, HOURLY_HOURS
+from . import cache
 
 MAX_CONCURRENT = 50
 MAX_RETRIES = 3
@@ -49,6 +50,13 @@ def _safe_float(val, default=0.0):
         return default
 
 
+def _wind_scale_max(val):
+    numbers = re.findall(r"\d+", str(val))
+    if not numbers:
+        return 0
+    return max(_safe_int(n) for n in numbers)
+
+
 SEVERE_KEYS = ["hasHail", "hasFreezing", "hasSnow"]
 
 
@@ -68,37 +76,39 @@ class WeatherTool:
 
         consecutive = 0
         for _ in range(MAX_RETRIES):
-            async with sem:
-                try:
+            delay = None
+            try:
+                async with sem:
                     resp = await client.get(url, params=params, timeout=10)
-                    code = resp.status_code
+                code = resp.status_code
 
-                    if code == 429:
-                        consecutive += 1
-                        delay = _backoff_delay(consecutive)
-                        await asyncio.sleep(delay)
-                        continue
+                if code == 429:
+                    consecutive += 1
+                    delay = _backoff_delay(consecutive)
 
-                    if code == 403 or code == 400:
-                        return None
-
-                    if code == 200:
-                        data = resp.json()
-                        if isinstance(data, dict) and data.get("code") == "200":
-                            cache.set(lat, lon, endpoint, data)
-                            return data
-                        if consecutive > 0:
-                            consecutive = 0
-                        continue
-
+                elif code == 403 or code == 400:
                     return None
 
-                except httpx.TimeoutException:
+                elif code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict) and data.get("code") == "200":
+                        cache.set(lat, lon, endpoint, data)
+                        return data
                     consecutive += 1
-                    await asyncio.sleep(_backoff_delay(consecutive))
-                except Exception:
-                    consecutive += 1
-                    await asyncio.sleep(_backoff_delay(consecutive))
+                    delay = _backoff_delay(consecutive)
+
+                else:
+                    return None
+
+            except httpx.TimeoutException:
+                consecutive += 1
+                delay = _backoff_delay(consecutive)
+            except Exception:
+                consecutive += 1
+                delay = _backoff_delay(consecutive)
+
+            if delay is not None:
+                await asyncio.sleep(delay)
 
         return None
 
@@ -114,9 +124,11 @@ class WeatherTool:
             rain_days = sum(1 for d in daily if _safe_float(d.get("precip", 0)) > 0)
             max_wind = 0
             for d in daily:
-                ws = d.get("windScaleDay", "0-0")
-                if isinstance(ws, str) and "-" in ws:
-                    max_wind = max(max_wind, _safe_int(ws.split("-")[-1]))
+                max_wind = max(
+                    max_wind,
+                    _wind_scale_max(d.get("windScaleDay", "")),
+                    _wind_scale_max(d.get("windScaleNight", "")),
+                )
         except Exception:
             return _empty_stats()
 
@@ -260,17 +272,22 @@ class WeatherTool:
                 ))
 
         result = {"counties": [], "updateTime": None,
-                  "total": len(counties), "warned": 0}
+                  "total": len(counties), "warned": 0,
+                  "failed": 0, "partialFailed": 0, "failedRooms": []}
         for c in counties:
             name = c["name"]
             data = daily_results.get(name)
             if not isinstance(data, dict):
+                result["failed"] += 1
+                result["failedRooms"].append(name)
                 continue
             if not result["updateTime"]:
                 result["updateTime"] = data.get("updateTime")
 
             daily = data.get("daily")
             if not isinstance(daily, list) or not daily:
+                result["failed"] += 1
+                result["failedRooms"].append(name)
                 continue
 
             hourly = None
@@ -281,6 +298,8 @@ class WeatherTool:
                 if isinstance(hourly_list, list) and start and end:
                     hourly = [h for h in hourly_list
                               if isinstance(h, dict) and start <= h.get("fxTime", "")[:10] <= end]
+            elif name in hourly_tasks:
+                result["partialFailed"] += 1
 
             stats = WeatherTool._compute_stats(daily, hourly)
             if WeatherTool._has_warning(stats):
@@ -310,9 +329,6 @@ def _empty_stats():
         "hasThunder": False, "hasSnow": False, "hasFreezing": False,
         "hasHail": False, "hasFog": False, "hasHaze": False, "hasSand": False,
     }
-
-
-_COUNTY_MAP = {}
 
 def _find_county(counties, name):
     for c in counties:

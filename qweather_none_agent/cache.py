@@ -4,7 +4,7 @@ import shutil
 import time
 from pathlib import Path
 
-_CACHE_DIR = Path(__file__).parent / "data" / ".cache"
+_CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / ".cache"
 
 DAILY_TTL = 3 * 60 * 60       # 3 hours
 HOURLY_TTL = 45 * 60          # 45 minutes

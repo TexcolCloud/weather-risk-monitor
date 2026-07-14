@@ -498,16 +498,13 @@ class ReportGenerator:
         elif r.get("maxRainHours", 0) >= 3:
             score += 15
         return score
-        hazard_types = self._hazard_type(c)
-        if not hazard_types:
-            return "一般关注"
-        ht, level = hazard_types[0]
-        return ht
 
     def generate(self, weather_data):
         rooms_data = weather_data.get("counties", [])
         update_time = weather_data.get("updateTime", "")
         total = weather_data.get("total", len(self.locations))
+        failed = weather_data.get("failed", 0)
+        partial_failed = weather_data.get("partialFailed", 0)
 
         today_str = ""
         if update_time:
@@ -521,6 +518,8 @@ class ReportGenerator:
         warned_counties = [c for c in county_stats if c["warnedCount"] > 0]
         affected_count = sum(c["warnedCount"] for c in county_stats)
         overall_level = self._get_overall_level(warned_counties)
+        high_risk = [c for c in warned_counties if self._is_significant_risk(c)]
+        focus_counties = high_risk or warned_counties
 
         lines = []
 
@@ -541,15 +540,27 @@ class ReportGenerator:
                     f"综合等级为{overall_level}。"
                 )
         else:
-            lines.append(f"未来7天全市{total}个机房暂无重大天气预警。")
+            if failed:
+                lines.append(
+                    f"未来7天全市{total}个机房暂未识别到重大天气预警，"
+                    f"但有{failed}个机房天气数据获取失败，需补充核查。"
+                )
+            else:
+                lines.append(f"未来7天全市{total}个机房暂无重大天气预警。")
+        if failed:
+            lines.append(f"数据提示：{failed}个机房天气数据获取失败，未纳入本次风险判断。")
+        if partial_failed:
+            lines.append(
+                f"数据提示：{partial_failed}个机房小时级天气数据获取失败，"
+                "连续高温、连续降雨和小时降水判断可能不完整。"
+            )
         lines.append("")
 
         if warned_counties:
             lines.append("一、重点风险")
             lines.append("")
 
-            high_risk = [c for c in warned_counties if self._is_significant_risk(c)]
-            for idx, c in enumerate(high_risk[:6]):
+            for idx, c in enumerate(focus_counties[:6]):
                 lines.append(self._format_county_risk(c, is_highest=(idx == 0)))
             lines.append("")
 
@@ -559,7 +570,7 @@ class ReportGenerator:
 
             top_rooms = []
             seen_cty = defaultdict(int)
-            hr_names = {c["name"] for c in high_risk}
+            hr_names = {c["name"] for c in focus_counties}
             for r in all_rooms:
                 ct = r.get("county", "")
                 if ct not in hr_names:
@@ -608,12 +619,20 @@ class ReportGenerator:
 
             lines.append("三、关注过程")
             lines.append("")
-            timeline = self._generate_timeline(high_risk,
-                                                  high_risk[0]["name"])
+            timeline = self._generate_timeline(
+                focus_counties,
+                focus_counties[0]["name"] if focus_counties else None
+            )
             for entry in timeline:
                 lines.append(f"* {entry}")
             lines.append("")
 
-        lines.append(self._generate_reminder(high_risk))
+        if not focus_counties and (failed or partial_failed):
+            lines.append(
+                f"{self.region}综合服务支撑中心提醒：部分机房天气数据获取不完整，"
+                "请补充核查后再安排对天气敏感的作业。"
+            )
+        else:
+            lines.append(self._generate_reminder(focus_counties))
 
         return "\n".join(lines)
