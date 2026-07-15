@@ -190,7 +190,7 @@ def create_scheduler(runner: ScheduledJobRunner) -> AsyncIOScheduler:
     )
     scheduler.add_job(
         runner.run_scheduled_full_forecast,
-        CronTrigger(hour="8,20", minute=10, timezone=TIMEZONE),
+        CronTrigger(hour="8,20", minute=30, timezone=TIMEZONE),
         id="full-forecast",
         **common,
     )
