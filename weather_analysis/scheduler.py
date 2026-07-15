@@ -119,9 +119,7 @@ class ScheduledJobRunner:
         return await self.run_scheduled_full_forecast(target)
 
     async def run_hourly_risk(self, target_start: datetime | None = None, publish: bool = True):
-        target_start = target_start or datetime.now(TIMEZONE).replace(
-            minute=0, second=0, microsecond=0
-        )
+        target_start = target_start or next_complete_hour()
         if target_start.tzinfo is None:
             target_start = target_start.replace(tzinfo=TIMEZONE)
         else:
@@ -137,9 +135,19 @@ class ScheduledJobRunner:
             artifact_time = datetime.fromisoformat(result["targetStart"])
             json_path = self.artifacts.write_json("hourly", artifact_time, result, started)
             high_risk_count = len(result["immediateRisks"]) + len(result["outlookRisks"])
+            all_failed = bool(result["total"] and result["failed"] >= result["total"])
             report = HourlyReportGenerator(self.region).generate(result)
             report_path = self.artifacts.write_report("hourly", artifact_time, report, started)
-            if high_risk_count:
+            if all_failed:
+                logger.error(
+                    "整点风险数据全部缺失 target=%s failed=%s",
+                    result["targetStart"],
+                    result["failed"],
+                )
+                outbox_path = self.artifacts.mark_failed(
+                    "hourly", report_path, artifact_time, started
+                )
+            elif high_risk_count:
                 if publish:
                     outbox_path = self.artifacts.publish(
                         "hourly", report_path, artifact_time, started

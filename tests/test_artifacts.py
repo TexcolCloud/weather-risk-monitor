@@ -25,6 +25,9 @@ class ArtifactStoreTest(unittest.TestCase):
                 no_risk_path = store.mark_not_required(
                     "hourly", report_path, created_at, created_at + timedelta(seconds=1)
                 )
+                failed_path = store.mark_failed(
+                    "hourly", report_path, created_at, created_at + timedelta(seconds=2)
+                )
 
             self.assertTrue(audit_path.name.startswith("0800-080000"))
             self.assertTrue(report_path.name.startswith("0800-080000"))
@@ -35,6 +38,9 @@ class ArtifactStoreTest(unittest.TestCase):
             )
             self.assertEqual(
                 "not_required", json.loads(no_risk_path.read_text(encoding="utf-8"))["status"]
+            )
+            self.assertEqual(
+                "failed", json.loads(failed_path.read_text(encoding="utf-8"))["status"]
             )
 
     def test_prune_removes_only_expired_date_directories(self):

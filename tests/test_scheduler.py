@@ -1,6 +1,6 @@
 import unittest
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
 from zoneinfo import ZoneInfo
@@ -25,7 +25,7 @@ class SchedulerTest(unittest.TestCase):
         self.assertEqual(1, full.max_instances)
         self.assertIn("minute='0'", str(hourly.trigger))
         self.assertIn("hour='8,20'", str(full.trigger))
-        self.assertIn("minute='10'", str(full.trigger))
+        self.assertIn("minute='30'", str(full.trigger))
 
     def test_next_complete_hour_rounds_up(self):
         now = datetime(2026, 7, 14, 8, 25, tzinfo=TIMEZONE)
@@ -34,6 +34,58 @@ class SchedulerTest(unittest.TestCase):
 
 
 class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _hourly_result(target: datetime, failed: int = 0):
+        return {
+            "targetStart": target.isoformat(),
+            "immediateEnd": (target + timedelta(hours=1)).isoformat(),
+            "outlookEnd": (target + timedelta(hours=3)).isoformat(),
+            "total": 1,
+            "failed": failed,
+            "partialFailed": 0,
+            "warningFailed": 0,
+            "immediateRisks": [],
+            "outlookRisks": [],
+        }
+
+    async def test_default_hourly_target_is_next_complete_hour(self):
+        target = datetime(2026, 7, 14, 17, tzinfo=TIMEZONE)
+        artifacts = Mock()
+        artifacts.write_json.return_value = Path("audit.json")
+        artifacts.write_report.return_value = Path("report.md")
+        artifacts.prune.return_value = 0
+        runner = ScheduledJobRunner([], artifacts=artifacts)
+
+        with (
+            patch("weather_analysis.scheduler.next_complete_hour", return_value=target),
+            patch(
+                "weather_analysis.scheduler.WeatherService.run_hourly_risk",
+                new=AsyncMock(return_value=self._hourly_result(target)),
+            ) as fetch,
+        ):
+            await runner.run_hourly_risk()
+
+        fetch.assert_awaited_once_with([], target, force_refresh=True)
+
+    async def test_all_failed_hourly_run_is_marked_failed(self):
+        target = datetime(2026, 7, 14, 17, tzinfo=TIMEZONE)
+        artifacts = Mock()
+        artifacts.write_json.return_value = Path("audit.json")
+        artifacts.write_report.return_value = Path("report.md")
+        artifacts.prune.return_value = 0
+        runner = ScheduledJobRunner([], artifacts=artifacts)
+
+        with patch(
+            "weather_analysis.scheduler.WeatherService.run_hourly_risk",
+            new=AsyncMock(return_value=self._hourly_result(target, failed=1)),
+        ):
+            await runner.run_hourly_risk(target)
+
+        artifacts.mark_failed.assert_called_once_with(
+            "hourly", Path("report.md"), target, artifacts.write_json.call_args.args[3]
+        )
+        artifacts.mark_not_required.assert_not_called()
+
     async def test_preview_does_not_skip_the_scheduled_hour_refresh(self):
         target = datetime(2026, 7, 14, 8, tzinfo=TIMEZONE)
         result = {

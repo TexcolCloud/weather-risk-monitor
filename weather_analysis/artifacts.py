@@ -26,6 +26,11 @@ class ReportPublisher(Protocol):
     ) -> Path:
         """Record that the latest report does not need delivery."""
 
+    def mark_failed(
+        self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
+    ) -> Path:
+        """Record that report generation completed without usable forecast data."""
+
     def mark_preview(
         self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
     ) -> Path:
@@ -66,6 +71,11 @@ class LocalOutboxPublisher:
         self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
     ) -> Path:
         return self._record(kind, report_path, target_at, created_at, "not_required")
+
+    def mark_failed(
+        self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
+    ) -> Path:
+        return self._record(kind, report_path, target_at, created_at, "failed")
 
     def mark_preview(
         self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
@@ -116,6 +126,11 @@ class ArtifactStore:
         self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
     ) -> Path:
         return self.publisher.mark_not_required(kind, report_path, target_at, created_at)
+
+    def mark_failed(
+        self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
+    ) -> Path:
+        return self.publisher.mark_failed(kind, report_path, target_at, created_at)
 
     def mark_preview(
         self, kind: str, report_path: Path, target_at: datetime, created_at: datetime
