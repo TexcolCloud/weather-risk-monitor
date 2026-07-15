@@ -7,8 +7,8 @@
 项目使用 Python 3.10 或更高版本：
 
 ```powershell
-python -m pip install -e .
-weather-analysis
+uv sync
+uv run weather-analysis daemon
 ```
 
 首次运行前，在项目根目录创建 `.env` 并配置和风天气 API Key；可参考 `.env.example`：
