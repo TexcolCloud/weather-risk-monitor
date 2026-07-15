@@ -1,12 +1,18 @@
-import unittest
+import asyncio
 import tempfile
+import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
 from zoneinfo import ZoneInfo
 
 from weather_analysis.runtime_state import RunStateStore
-from weather_analysis.scheduler import ScheduledJobRunner, create_scheduler, next_complete_hour
+from weather_analysis.scheduler import (
+    ScheduledJobRunner,
+    create_scheduler,
+    next_complete_hour,
+    should_run_immediate_hourly,
+)
 
 
 TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -23,6 +29,7 @@ class SchedulerTest(unittest.TestCase):
         self.assertIsNotNone(full)
         self.assertEqual(1, hourly.max_instances)
         self.assertEqual(1, full.max_instances)
+        self.assertEqual("run_scheduled_hourly_risk", hourly.func.__name__)
         self.assertIn("minute='0'", str(hourly.trigger))
         self.assertIn("hour='8,20'", str(full.trigger))
         self.assertIn("minute='30'", str(full.trigger))
@@ -31,6 +38,17 @@ class SchedulerTest(unittest.TestCase):
         now = datetime(2026, 7, 14, 8, 25, tzinfo=TIMEZONE)
 
         self.assertEqual(datetime(2026, 7, 14, 9, tzinfo=TIMEZONE), next_complete_hour(now))
+
+    def test_immediate_hourly_is_skipped_close_to_the_hour(self):
+        self.assertFalse(
+            should_run_immediate_hourly(datetime(2026, 7, 14, 18, 59, 59, tzinfo=TIMEZONE))
+        )
+        self.assertFalse(
+            should_run_immediate_hourly(datetime(2026, 7, 14, 18, 59, tzinfo=TIMEZONE))
+        )
+        self.assertTrue(
+            should_run_immediate_hourly(datetime(2026, 7, 14, 18, 58, 59, tzinfo=TIMEZONE))
+        )
 
 
 class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
@@ -85,6 +103,48 @@ class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
             "hourly", Path("report.md"), target, artifacts.write_json.call_args.args[3]
         )
         artifacts.mark_not_required.assert_not_called()
+
+    async def test_scheduled_hourly_waits_for_preview_instead_of_being_dropped(self):
+        preview_target = datetime(2026, 7, 14, 19, tzinfo=TIMEZONE)
+        scheduled_target = datetime(2026, 7, 14, 20, tzinfo=TIMEZONE)
+        preview_started = asyncio.Event()
+        release_preview = asyncio.Event()
+
+        async def fetch(_rooms, target, force_refresh=False):
+            if target == preview_target:
+                preview_started.set()
+                await release_preview.wait()
+            return self._hourly_result(target)
+
+        artifacts = Mock()
+        artifacts.write_json.return_value = Path("audit.json")
+        artifacts.write_report.return_value = Path("report.md")
+        artifacts.prune.return_value = 0
+        runner = ScheduledJobRunner([], artifacts=artifacts)
+
+        with (
+            patch("weather_analysis.scheduler.next_complete_hour", return_value=scheduled_target),
+            patch(
+                "weather_analysis.scheduler.WeatherService.run_hourly_risk",
+                new=AsyncMock(side_effect=fetch),
+            ) as weather_fetch,
+        ):
+            preview = asyncio.create_task(runner.run_hourly_risk(preview_target, publish=False))
+            await preview_started.wait()
+            scheduled = asyncio.create_task(runner.run_scheduled_hourly_risk())
+            await asyncio.sleep(0)
+            self.assertFalse(scheduled.done())
+
+            release_preview.set()
+            await asyncio.gather(preview, scheduled)
+
+        self.assertEqual(
+            [
+                call([], preview_target, force_refresh=False),
+                call([], scheduled_target, force_refresh=True),
+            ],
+            weather_fetch.await_args_list,
+        )
 
     async def test_preview_does_not_skip_the_scheduled_hour_refresh(self):
         target = datetime(2026, 7, 14, 8, tzinfo=TIMEZONE)

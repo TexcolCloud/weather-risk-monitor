@@ -17,6 +17,7 @@ from .weather import WeatherService
 
 
 TIMEZONE = ZoneInfo("Asia/Shanghai")
+IMMEDIATE_HOURLY_GUARD_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
@@ -34,10 +35,12 @@ class ScheduledJobRunner:
         self.state_store = state_store or RunStateStore()
         self._lock = asyncio.Lock()
 
-    async def _run_exclusive(self, kind: str, callback):
+    async def _run_exclusive(self, kind: str, callback, wait_for_lock: bool = False):
         if self._lock.locked():
-            logger.warning("任务跳过：已有任务运行中 kind=%s", kind)
-            return None
+            if not wait_for_lock:
+                logger.warning("任务跳过：已有任务运行中 kind=%s", kind)
+                return None
+            logger.info("任务等待：已有任务运行中 kind=%s", kind)
         async with self._lock:
             started = datetime.now(TIMEZONE)
             logger.info("任务开始 kind=%s scheduled_at=%s", kind, started.isoformat())
@@ -118,7 +121,12 @@ class ScheduledJobRunner:
         logger.info("补跑遗漏的完整预测 target=%s", target.isoformat())
         return await self.run_scheduled_full_forecast(target)
 
-    async def run_hourly_risk(self, target_start: datetime | None = None, publish: bool = True):
+    async def run_hourly_risk(
+        self,
+        target_start: datetime | None = None,
+        publish: bool = True,
+        wait_for_lock: bool = False,
+    ):
         target_start = target_start or next_complete_hour()
         if target_start.tzinfo is None:
             target_start = target_start.replace(tzinfo=TIMEZONE)
@@ -179,7 +187,11 @@ class ScheduledJobRunner:
                 logger.info("清理过期运行文件 count=%s", removed)
             return result, report_path
 
-        return await self._run_exclusive("hourly", callback)
+        return await self._run_exclusive("hourly", callback, wait_for_lock=wait_for_lock)
+
+    async def run_scheduled_hourly_risk(self):
+        """Run a formal hourly check without dropping it behind another task."""
+        return await self.run_hourly_risk(next_complete_hour(), wait_for_lock=True)
 
 
 def create_scheduler(runner: ScheduledJobRunner) -> AsyncIOScheduler:
@@ -191,7 +203,7 @@ def create_scheduler(runner: ScheduledJobRunner) -> AsyncIOScheduler:
         "replace_existing": True,
     }
     scheduler.add_job(
-        runner.run_hourly_risk,
+        runner.run_scheduled_hourly_risk,
         CronTrigger(minute=0, timezone=TIMEZONE),
         id="hourly-risk",
         **common,
@@ -214,6 +226,16 @@ def next_complete_hour(now: datetime | None = None) -> datetime:
     return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
+def should_run_immediate_hourly(now: datetime | None = None) -> bool:
+    now = now or datetime.now(TIMEZONE)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=TIMEZONE)
+    else:
+        now = now.astimezone(TIMEZONE)
+    seconds_until_next_hour = (next_complete_hour(now) - now).total_seconds()
+    return seconds_until_next_hour > IMMEDIATE_HOURLY_GUARD_SECONDS
+
+
 async def run_daemon(runner: ScheduledJobRunner, immediate: bool = True) -> None:
     with DaemonLock():
         scheduler = create_scheduler(runner)
@@ -222,9 +244,13 @@ async def run_daemon(runner: ScheduledJobRunner, immediate: bool = True) -> None
         try:
             await runner.run_missed_full_forecast()
             if immediate:
-                target = next_complete_hour()
-                logger.info("启动即时检查 target=%s", target.isoformat())
-                await runner.run_hourly_risk(target, publish=False)
+                now = datetime.now(TIMEZONE)
+                target = next_complete_hour(now)
+                if should_run_immediate_hourly(now):
+                    logger.info("启动即时检查 target=%s", target.isoformat())
+                    await runner.run_hourly_risk(target, publish=False)
+                else:
+                    logger.info("启动即时检查跳过：距离整点过近 target=%s", target.isoformat())
             await asyncio.Event().wait()
         finally:
             scheduler.shutdown(wait=False)
