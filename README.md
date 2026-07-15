@@ -58,18 +58,32 @@ python -m unittest discover -s tests -v
 ## 目录结构
 
 ```text
-weather_analysis/
-├── data/sites.example.json  # 示例区域机房基础数据
-├── models.py                # 模块间数据结构
-├── qweather_client.py       # 和风天气请求与响应归一化
-├── weather_stats.py         # 小时和日预报统计
-├── weather.py               # 多数据源采集编排
-├── warning_rules.py         # 灾害规则、等级与排序
-├── aggregation.py           # 机房到区县的风险聚合
-├── selectors.py             # 重点机房选择
-├── report.py                # 报告文案与排版
-├── cache.py                 # 本地接口缓存
-├── paths.py                 # 可配置的运行数据目录
-├── config.py                # 运行配置和机房清单加载
-└── cli.py                   # 命令行入口
+.
+├── .env.example             # API Key 配置示例
+├── .gitignore               # 本地配置和运行产物忽略规则
+├── README.md
+├── pyproject.toml           # 项目元数据、依赖与命令行入口
+├── uv.lock                  # 锁定的依赖版本
+├── tests/                   # 单元测试
+└── weather_analysis/
+    ├── __init__.py
+    ├── aggregation.py       # 机房到区县的风险聚合
+    ├── artifacts.py         # 报告、审计结果与 outbox 存储
+    ├── cache.py             # 本地接口缓存
+    ├── cli.py               # 命令行入口
+    ├── config.py            # 环境配置和机房清单加载
+    ├── data/
+    │   └── sites.example.json  # 示例区域机房基础数据
+    ├── hourly_report.py     # 逐小时风险简报
+    ├── logging_config.py    # 日志配置与轮转
+    ├── models.py            # 模块间数据结构
+    ├── paths.py             # 项目内运行数据目录解析
+    ├── qweather_client.py   # 和风天气请求与响应归一化
+    ├── report.py            # 完整预测报告文案与排版
+    ├── runtime_state.py     # 守护进程锁和执行状态
+    ├── scheduler.py         # 定时任务调度
+    ├── selectors.py         # 重点机房选择
+    ├── warning_rules.py     # 灾害规则、等级与排序
+    ├── weather.py           # 多数据源采集编排
+    └── weather_stats.py     # 小时和日预报统计
 ```
