@@ -1,4 +1,5 @@
 import unittest
+from collections import Counter
 from unittest.mock import patch
 
 from weather_analysis.qweather_client import QWeatherClient
@@ -37,6 +38,51 @@ class WeatherServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, result["failed"])
         self.assertEqual(0, result["warned"])
         self.assertEqual([], result["counties"])
+        self.assertEqual("C", result["auxiliaryWarnings"][0]["county"])
+
+    async def test_identical_query_locations_share_weather_requests(self):
+        calls = Counter()
+
+        async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
+            calls[endpoint] += 1
+            if endpoint == "7d":
+                return {
+                    "code": "200",
+                    "daily": [
+                        {
+                            "fxDate": "2026-07-14",
+                            "tempMax": "20",
+                            "tempMin": "10",
+                            "precip": "0",
+                            "windScaleDay": "1",
+                            "windScaleNight": "1",
+                        }
+                    ],
+                }
+            if endpoint == "168h":
+                return {
+                    "code": "200",
+                    "hourly": [
+                        {
+                            "fxTime": "2026-07-14T00:00+08:00",
+                            "temp": "20",
+                            "precip": "0",
+                            "text": "晴",
+                        }
+                    ],
+                }
+            return {"code": "200", "warning": []}
+
+        locations = [
+            {"name": "A", "county": "C", "lat": 30.0001, "lon": 111.0001},
+            {"name": "B", "county": "C", "lat": 30.0002, "lon": 111.0002},
+        ]
+        with patch.object(QWeatherClient, "fetch", new=fake_fetch):
+            await WeatherService.run(locations)
+
+        self.assertEqual(1, calls["7d"])
+        self.assertEqual(1, calls["168h"])
+        self.assertEqual(1, calls["warning"])
 
     async def test_empty_hourly_and_failed_warning_sources_are_reported(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):

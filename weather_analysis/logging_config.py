@@ -29,7 +29,9 @@ def configure_logging(console: bool = False) -> logging.Logger:
         file_handler.setFormatter(logging.Formatter(_FORMAT))
         logger.addHandler(file_handler)
 
-    if console and not any(getattr(handler, "_weather_analysis_console", False) for handler in logger.handlers):
+    if console and not any(
+        getattr(handler, "_weather_analysis_console", False) for handler in logger.handlers
+    ):
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler._weather_analysis_handler = True
         console_handler._weather_analysis_console = True

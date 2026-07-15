@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -19,13 +19,42 @@ class ArtifactStoreTest(unittest.TestCase):
                 patch("weather_analysis.artifacts.OUTBOX_DIR", root / "outbox"),
             ):
                 store = ArtifactStore()
-                audit_path = store.write_json("hourly", created_at, {"total": 1})
-                report_path = store.write_report("hourly", created_at, "report\n")
-                outbox_path = store.publish("hourly", report_path, created_at)
-                no_risk_path = store.mark_not_required("hourly", report_path, created_at)
+                audit_path = store.write_json("hourly", created_at, {"total": 1}, created_at)
+                report_path = store.write_report("hourly", created_at, "report\n", created_at)
+                outbox_path = store.publish("hourly", report_path, created_at, created_at)
+                no_risk_path = store.mark_not_required(
+                    "hourly", report_path, created_at, created_at + timedelta(seconds=1)
+                )
 
-            self.assertEqual("0800.json", audit_path.name)
-            self.assertEqual("0800.md", report_path.name)
+            self.assertTrue(audit_path.name.startswith("0800-080000"))
+            self.assertTrue(report_path.name.startswith("0800-080000"))
             self.assertTrue(outbox_path.exists())
-            self.assertEqual(outbox_path, no_risk_path)
-            self.assertEqual("not_required", json.loads(outbox_path.read_text(encoding="utf-8"))["status"])
+            self.assertNotEqual(outbox_path, no_risk_path)
+            self.assertEqual(
+                "pending", json.loads(outbox_path.read_text(encoding="utf-8"))["status"]
+            )
+            self.assertEqual(
+                "not_required", json.loads(no_risk_path.read_text(encoding="utf-8"))["status"]
+            )
+
+    def test_prune_removes_only_expired_date_directories(self):
+        now = datetime(2026, 7, 15, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            old_report = root / "reports" / "hourly" / "2025-07-14"
+            current_report = root / "reports" / "hourly" / "2026-07-15"
+            old_outbox = root / "outbox" / "2025-07-14"
+            for directory in (old_report, current_report, old_outbox):
+                directory.mkdir(parents=True)
+                (directory / "result.json").write_text("{}", encoding="utf-8")
+
+            with (
+                patch("weather_analysis.artifacts.REPORTS_DIR", root / "reports"),
+                patch("weather_analysis.artifacts.OUTBOX_DIR", root / "outbox"),
+            ):
+                removed = ArtifactStore().prune(now, retention_days=365)
+
+            self.assertEqual(2, removed)
+            self.assertFalse(old_report.exists())
+            self.assertFalse(old_outbox.exists())
+            self.assertTrue(current_report.exists())

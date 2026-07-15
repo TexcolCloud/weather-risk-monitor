@@ -34,6 +34,11 @@ class OfficialWarning(TypedDict, total=False):
     pubTime: str
 
 
+class AuxiliaryWarning(TypedDict, total=False):
+    county: str
+    warnings: list[OfficialWarning]
+
+
 class WeatherStats(TypedDict, total=False):
     name: str
     county: str
@@ -101,6 +106,7 @@ class WeatherFetchResult(TypedDict, total=False):
     partialFailedRooms: list[str]
     warningFailedRooms: list[str]
     dailyIncompleteRooms: list[str]
+    auxiliaryWarnings: list[AuxiliaryWarning]
 
 
 class HourlyRiskRoom(TypedDict, total=False):
@@ -129,3 +135,4 @@ class HourlyRiskResult(TypedDict, total=False):
     failedRooms: list[str]
     partialFailedRooms: list[str]
     warningFailedRooms: list[str]
+    auxiliaryWarnings: list[AuxiliaryWarning]

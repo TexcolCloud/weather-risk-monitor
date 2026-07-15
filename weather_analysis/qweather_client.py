@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import random
 from types import TracebackType
 
@@ -14,6 +15,7 @@ from .models import OfficialWarning, Room
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT = 50
+MAX_REQUESTS_PER_SECOND = int(os.environ.get("WEATHER_ANALYSIS_MAX_REQUESTS_PER_SECOND", "10"))
 MAX_RETRIES = 3
 BACKOFF_BASE = 2.0
 BACKOFF_MAX_EXPONENT = 8
@@ -117,9 +119,19 @@ def normalize_warnings(data) -> list[OfficialWarning]:
 
 
 class QWeatherClient:
-    def __init__(self, api_key: str, max_concurrent: int = MAX_CONCURRENT):
+    def __init__(
+        self,
+        api_key: str,
+        max_concurrent: int = MAX_CONCURRENT,
+        max_requests_per_second: int = MAX_REQUESTS_PER_SECOND,
+    ):
+        if max_requests_per_second < 1:
+            raise ValueError("max_requests_per_second must be positive")
         self._headers = {"X-QW-API-KEY": api_key}
         self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._rate_lock = asyncio.Lock()
+        self._request_interval = 1 / max_requests_per_second
+        self._next_request_at = 0.0
         self._limits = httpx.Limits(
             max_connections=max_concurrent,
             max_keepalive_connections=20,
@@ -145,6 +157,16 @@ class QWeatherClient:
         lon = _safe_float(room.get("lon"), 0.0)
         return f"{lon:.2f},{lat:.2f}"
 
+    async def _wait_for_request_slot(self) -> None:
+        loop = asyncio.get_running_loop()
+        async with self._rate_lock:
+            now = loop.time()
+            scheduled = max(now, self._next_request_at)
+            self._next_request_at = scheduled + self._request_interval
+        delay = scheduled - loop.time()
+        if delay > 0:
+            await asyncio.sleep(delay)
+
     async def fetch(self, url, params, lat, lon, endpoint, ttl):
         cached = cache.get(lat, lon, endpoint, ttl)
         if cached is not None:
@@ -157,6 +179,7 @@ class QWeatherClient:
             delay = None
             try:
                 async with self._semaphore:
+                    await self._wait_for_request_slot()
                     response = await self._client.get(url, params=params, timeout=10)
                 status = response.status_code
                 if status == 429:

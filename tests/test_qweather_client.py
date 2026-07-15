@@ -1,9 +1,13 @@
 import unittest
 
-from weather_analysis.qweather_client import normalize_warnings
+from weather_analysis.qweather_client import QWeatherClient, normalize_warnings
 
 
 class QWeatherClientTest(unittest.TestCase):
+    def test_rate_limit_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            QWeatherClient("test-key", max_requests_per_second=0)
+
     def test_normalize_qweather_warning_shapes(self):
         v7 = {
             "warning": [

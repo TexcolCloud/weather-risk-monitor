@@ -9,7 +9,6 @@ from . import cache
 from .config import SITES
 from .logging_config import configure_logging
 from .scheduler import ScheduledJobRunner, next_complete_hour, run_daemon
-from .weather import WeatherService
 
 
 if hasattr(sys.stdout, "buffer"):
@@ -62,7 +61,12 @@ async def main(argv=None):
 
     locations = _locations()
     if args.command == "daemon":
-        await run_daemon(ScheduledJobRunner(locations), immediate=not args.no_immediate)
+        try:
+            await run_daemon(ScheduledJobRunner(locations), immediate=not args.no_immediate)
+        except RuntimeError as error:
+            logger.error("无法启动守护进程: %s", error)
+            print(f"无法启动守护进程: {error}", file=sys.stderr)
+            return 2
         return 0
     if args.command == "hourly":
         run_result = await ScheduledJobRunner(locations).run_hourly_risk(_hourly_target(args.at))

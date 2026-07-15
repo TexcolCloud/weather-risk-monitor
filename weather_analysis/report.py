@@ -492,6 +492,7 @@ class ReportGenerator:
         partial_failed = weather_data.get("partialFailed", 0)
         warning_failed = weather_data.get("warningFailed", 0)
         daily_incomplete = weather_data.get("dailyIncomplete", 0)
+        auxiliary_warnings = weather_data.get("auxiliaryWarnings", [])
 
         today_str = ""
         if update_time:
@@ -560,8 +561,18 @@ class ReportGenerator:
                 lines.append(f"未来7天全市{total}个机房暂无重大天气预警。")
         if failed:
             lines.append(
-                f"数据提示：{failed}个机房日预报数据获取失败；已获取到的官方预警仍纳入本次报告。"
+                f"数据提示：{failed}个机房日预报数据获取失败，相关风险未按官方预警单独判定。"
             )
+        if auxiliary_warnings:
+            summaries = []
+            for item in auxiliary_warnings[:3]:
+                warning = next(iter(item.get("warnings", [])), None)
+                if isinstance(warning, dict) and warning.get("title"):
+                    summaries.append(
+                        f"{item.get('county', '未分区')}：{_compact_warning_title(warning['title'])}"
+                    )
+            if summaries:
+                lines.append(f"辅助核查：预报数据缺失区域存在官方预警，{'；'.join(summaries)}。")
         if daily_incomplete:
             lines.append(
                 f"数据提示：{daily_incomplete}个机房日预报字段不完整，相关温度判断可能不完整。"

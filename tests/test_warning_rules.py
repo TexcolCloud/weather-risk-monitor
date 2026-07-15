@@ -66,9 +66,7 @@ class WarningRulesTest(unittest.TestCase):
 
     def test_official_warning_alone_is_not_a_forecast_risk(self):
         warning_only = {
-            "officialWarnings": [
-                {"typeName": "高温", "levelScore": 4, "title": "高温红色预警"}
-            ]
+            "officialWarnings": [{"typeName": "高温", "levelScore": 4, "title": "高温红色预警"}]
         }
 
         self.assertFalse(is_forecast_significant(warning_only))

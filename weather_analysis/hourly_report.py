@@ -23,6 +23,17 @@ def _compact_warning_title(title: str) -> str:
     return (title or "").replace("发布", "").replace("解除", "").strip()
 
 
+def _auxiliary_warning_lines(items: list[dict]) -> list[str]:
+    lines = []
+    for item in items:
+        warning = next(iter(item.get("warnings", [])), None)
+        if isinstance(warning, dict) and warning.get("title"):
+            lines.append(
+                f"* {item.get('county', '未分区')}：预报数据缺失；{_compact_warning_title(warning['title'])}"
+            )
+    return lines
+
+
 def _risk_reason(room: dict) -> str:
     stats = room.get("stats", {})
     hazards = evaluate_forecast_hazards(stats)
@@ -96,4 +107,8 @@ class HourlyReportGenerator:
                 f"{result.get('partialFailed', 0)}个机房3小时数据不完整，"
                 f"{result.get('warningFailed', 0)}个机房官方预警获取失败。"
             )
+        auxiliary = _auxiliary_warning_lines(result.get("auxiliaryWarnings", []))
+        if auxiliary:
+            lines.extend(["", "三、数据异常辅助信息", ""])
+            lines.extend(auxiliary)
         return "\n".join(lines).rstrip() + "\n"

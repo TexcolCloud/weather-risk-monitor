@@ -1,9 +1,11 @@
 import unittest
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
+from weather_analysis.runtime_state import RunStateStore
 from weather_analysis.scheduler import ScheduledJobRunner, create_scheduler, next_complete_hour
 
 
@@ -32,7 +34,7 @@ class SchedulerTest(unittest.TestCase):
 
 
 class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_same_target_hour_is_not_published_twice(self):
+    async def test_preview_does_not_skip_the_scheduled_hour_refresh(self):
         target = datetime(2026, 7, 14, 8, tzinfo=TIMEZONE)
         result = {
             "targetStart": target.isoformat(),
@@ -42,19 +44,41 @@ class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
             "failed": 0,
             "partialFailed": 0,
             "warningFailed": 0,
-            "immediateRisks": [],
+            "immediateRisks": [{"name": "A", "county": "C", "stats": {}}],
             "outlookRisks": [],
         }
         artifacts = Mock()
         artifacts.write_json.return_value = Path("audit.json")
+        artifacts.write_report.return_value = Path("report.md")
+        artifacts.prune.return_value = 0
         runner = ScheduledJobRunner([], artifacts=artifacts)
 
         with patch(
             "weather_analysis.scheduler.WeatherService.run_hourly_risk",
             new=AsyncMock(return_value=result),
         ) as fetch:
-            await runner.run_hourly_risk(target)
-            await runner.run_hourly_risk(target)
+            await runner.run_hourly_risk(target, publish=False)
+            await runner.run_hourly_risk(target, publish=True)
 
-        self.assertEqual(1, fetch.await_count)
-        self.assertEqual(1, artifacts.write_json.call_count)
+        self.assertEqual(2, fetch.await_count)
+        self.assertEqual(2, artifacts.write_json.call_count)
+        artifacts.mark_preview.assert_called_once()
+        artifacts.mark_not_required.assert_not_called()
+        artifacts.publish.assert_called_once()
+
+    async def test_missed_full_forecast_runs_once_per_scheduled_target(self):
+        target = datetime(2026, 7, 14, 8, 10, tzinfo=TIMEZONE)
+        with tempfile.TemporaryDirectory() as temporary:
+            state_store = RunStateStore(Path(temporary) / "state.json")
+            runner = ScheduledJobRunner([], artifacts=Mock(), state_store=state_store)
+            result = {"total": 1, "failed": 0}
+            with patch.object(
+                runner,
+                "run_full_forecast",
+                new=AsyncMock(return_value=(result, "report")),
+            ) as full_run:
+                await runner.run_missed_full_forecast(datetime(2026, 7, 14, 8, 15, tzinfo=TIMEZONE))
+                await runner.run_missed_full_forecast(datetime(2026, 7, 14, 8, 16, tzinfo=TIMEZONE))
+
+            full_run.assert_awaited_once_with(target)
+            self.assertTrue(state_store.is_completed("full", target))

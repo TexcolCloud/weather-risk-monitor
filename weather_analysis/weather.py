@@ -47,7 +47,14 @@ class WeatherService:
         return official_warnings
 
     @staticmethod
-    def _risk_room(room: Room, stats: dict, records: list[dict], start: datetime, end: datetime) -> dict:
+    def _add_auxiliary_warning(grouped: dict, room: Room, warnings: list[dict]) -> None:
+        if warnings:
+            grouped[room.get("county") or room["name"]] = warnings
+
+    @staticmethod
+    def _risk_room(
+        room: Room, stats: dict, records: list[dict], start: datetime, end: datetime
+    ) -> dict:
         def temp_value(record):
             try:
                 return float(record.get("temp"))
@@ -56,7 +63,9 @@ class WeatherService:
 
         peak = max(records, key=temp_value, default={})
         weather_texts = list(
-            dict.fromkeys(str(record.get("text", "")).strip() for record in records if record.get("text"))
+            dict.fromkeys(
+                str(record.get("text", "")).strip() for record in records if record.get("text")
+            )
         )
         return {
             "name": room["name"],
@@ -83,6 +92,7 @@ class WeatherService:
         params_base = {"lang": "zh"}
         rooms_by_name = {room["name"]: room for room in rooms}
         warning_key_by_name = {}
+        room_location_by_name = {}
 
         async with QWeatherClient(QWEATHER_API_KEY) as client:
             daily_tasks = {}
@@ -91,15 +101,18 @@ class WeatherService:
                 name = room["name"]
                 lat = room.get("lat", 0)
                 lon = room.get("lon", 0)
-                params = {**params_base, "location": client.location(room)}
-                daily_tasks[name] = client.fetch(
-                    f"{QWEATHER_BASE_URL}/{FORECAST_DAYS}",
-                    params,
-                    lat,
-                    lon,
-                    "7d",
-                    cache.DAILY_TTL,
-                )
+                location = client.location(room)
+                room_location_by_name[name] = location
+                params = {**params_base, "location": location}
+                if location not in daily_tasks:
+                    daily_tasks[location] = client.fetch(
+                        f"{QWEATHER_BASE_URL}/{FORECAST_DAYS}",
+                        params,
+                        lat,
+                        lon,
+                        "7d",
+                        cache.DAILY_TTL,
+                    )
 
                 warning_key = room.get("county") or name
                 warning_key_by_name[name] = warning_key
@@ -113,12 +126,16 @@ class WeatherService:
                         cache.WARNING_TTL,
                     )
 
-            daily_results = dict(
+            daily_results_by_location = dict(
                 zip(
                     daily_tasks,
                     await asyncio.gather(*daily_tasks.values()),
                 )
             )
+            daily_results = {
+                name: daily_results_by_location[location]
+                for name, location in room_location_by_name.items()
+            }
             warning_results = dict(
                 zip(
                     warning_tasks,
@@ -137,28 +154,34 @@ class WeatherService:
                 room = rooms_by_name[name]
                 lat = room.get("lat", 0)
                 lon = room.get("lon", 0)
-                params = {**params_base, "location": client.location(room)}
+                location = room_location_by_name[name]
+                params = {**params_base, "location": location}
                 date_ranges[name] = (
                     daily[0].get("fxDate", ""),
                     daily[-1].get("fxDate", ""),
                 )
-                hourly_tasks[name] = client.fetch(
-                    f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h",
-                    params,
-                    lat,
-                    lon,
-                    "168h",
-                    cache.HOURLY_TTL,
-                )
+                if location not in hourly_tasks:
+                    hourly_tasks[location] = client.fetch(
+                        f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h",
+                        params,
+                        lat,
+                        lon,
+                        "168h",
+                        cache.HOURLY_TTL,
+                    )
 
             hourly_results = {}
             if hourly_tasks:
-                hourly_results = dict(
+                hourly_results_by_location = dict(
                     zip(
                         hourly_tasks,
                         await asyncio.gather(*hourly_tasks.values()),
                     )
                 )
+                hourly_results = {
+                    name: hourly_results_by_location[location]
+                    for name, location in room_location_by_name.items()
+                }
 
         result: WeatherFetchResult = {
             "counties": [],
@@ -173,7 +196,9 @@ class WeatherService:
             "partialFailedRooms": [],
             "warningFailedRooms": [],
             "dailyIncompleteRooms": [],
+            "auxiliaryWarnings": [],
         }
+        auxiliary_warning_by_county = {}
 
         for room in rooms:
             name = room["name"]
@@ -217,7 +242,11 @@ class WeatherService:
             elif not result["updateTime"]:
                 result["updateTime"] = warning_data.get("updateTime")
 
-            WeatherService._attach_warnings(stats, warning_data)
+            official_warnings = WeatherService._attach_warnings(stats, warning_data)
+            if not daily_ok:
+                WeatherService._add_auxiliary_warning(
+                    auxiliary_warning_by_county, room, official_warnings
+                )
             if is_forecast_warning(stats):
                 result["warned"] += 1
                 result["counties"].append(
@@ -228,6 +257,10 @@ class WeatherService:
                     }
                 )
 
+        result["auxiliaryWarnings"] = [
+            {"county": county, "warnings": warnings}
+            for county, warnings in sorted(auxiliary_warning_by_county.items())
+        ]
         return result
 
     @staticmethod
@@ -244,6 +277,7 @@ class WeatherService:
 
         params_base = {"lang": "zh"}
         warning_key_by_name = {}
+        room_location_by_name = {}
         async with QWeatherClient(QWEATHER_API_KEY) as client:
             hourly_tasks = {}
             warning_tasks = {}
@@ -251,15 +285,18 @@ class WeatherService:
                 name = room["name"]
                 lat = room.get("lat", 0)
                 lon = room.get("lon", 0)
-                params = {**params_base, "location": client.location(room)}
-                hourly_tasks[name] = client.fetch(
-                    f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h",
-                    params,
-                    lat,
-                    lon,
-                    "168h",
-                    cache.HOURLY_TTL,
-                )
+                location = client.location(room)
+                room_location_by_name[name] = location
+                params = {**params_base, "location": location}
+                if location not in hourly_tasks:
+                    hourly_tasks[location] = client.fetch(
+                        f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h",
+                        params,
+                        lat,
+                        lon,
+                        "168h",
+                        cache.HOURLY_TTL,
+                    )
 
                 warning_key = room.get("county") or name
                 warning_key_by_name[name] = warning_key
@@ -273,8 +310,16 @@ class WeatherService:
                         cache.WARNING_TTL,
                     )
 
-            hourly_results = dict(zip(hourly_tasks, await asyncio.gather(*hourly_tasks.values())))
-            warning_results = dict(zip(warning_tasks, await asyncio.gather(*warning_tasks.values())))
+            hourly_results_by_location = dict(
+                zip(hourly_tasks, await asyncio.gather(*hourly_tasks.values()))
+            )
+            hourly_results = {
+                name: hourly_results_by_location[location]
+                for name, location in room_location_by_name.items()
+            }
+            warning_results = dict(
+                zip(warning_tasks, await asyncio.gather(*warning_tasks.values()))
+            )
 
         result: HourlyRiskResult = {
             "targetStart": target_start.isoformat(),
@@ -290,7 +335,9 @@ class WeatherService:
             "failedRooms": [],
             "partialFailedRooms": [],
             "warningFailedRooms": [],
+            "auxiliaryWarnings": [],
         }
+        auxiliary_warning_by_county = {}
 
         for room in rooms:
             name = room["name"]
@@ -315,19 +362,31 @@ class WeatherService:
             elif not result["updateTime"]:
                 result["updateTime"] = warning_data.get("updateTime")
 
-            WeatherService._attach_warnings(immediate_stats, warning_data)
+            official_warnings = WeatherService._attach_warnings(immediate_stats, warning_data)
             WeatherService._attach_warnings(outlook_stats, warning_data)
+            if not immediate_stats["hourlyDataComplete"]:
+                WeatherService._add_auxiliary_warning(
+                    auxiliary_warning_by_county, room, official_warnings
+                )
             if is_forecast_significant(immediate_stats):
                 result["immediateRisks"].append(
-                    WeatherService._risk_room(room, immediate_stats, immediate_records, target_start, immediate_end)
+                    WeatherService._risk_room(
+                        room, immediate_stats, immediate_records, target_start, immediate_end
+                    )
                 )
             if is_forecast_significant(outlook_stats):
                 result["outlookRisks"].append(
-                    WeatherService._risk_room(room, outlook_stats, outlook_records, target_start, outlook_end)
+                    WeatherService._risk_room(
+                        room, outlook_stats, outlook_records, target_start, outlook_end
+                    )
                 )
 
         WeatherService._sort_risks(result["immediateRisks"])
         WeatherService._sort_risks(result["outlookRisks"])
+        result["auxiliaryWarnings"] = [
+            {"county": county, "warnings": warnings}
+            for county, warnings in sorted(auxiliary_warning_by_county.items())
+        ]
         return result
 
 

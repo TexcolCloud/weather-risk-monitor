@@ -73,6 +73,7 @@ class HourlyRiskTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(1, result["failed"])
         self.assertEqual([], result["immediateRisks"])
+        self.assertEqual("C", result["auxiliaryWarnings"][0]["county"])
 
     async def test_official_warning_is_attached_to_data_derived_risk(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
