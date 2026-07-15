@@ -10,7 +10,11 @@ from .aggregation import (
     to_number,
 )
 from .selectors import select_top_rooms
-from .warning_rules import evaluate_hazards, is_focus_warning, is_significant, report_level
+from .warning_rules import (
+    evaluate_forecast_hazards,
+    forecast_report_level,
+    is_forecast_significant,
+)
 
 
 def _fmt_date(date_str):
@@ -49,10 +53,10 @@ class ReportGenerator:
         self._aggregator = CountyAggregator(locations)
 
     def _get_overall_level(self, warned_counties):
-        return report_level(warned_counties)
+        return forecast_report_level(warned_counties)
 
     def _hazard_type(self, c):
-        return [(h["name"], h["level"]) for h in evaluate_hazards(c)]
+        return [(h["name"], h["level"]) for h in evaluate_forecast_hazards(c)]
 
     def _hazard_label(self, c, max_items=2):
         labels = []
@@ -76,7 +80,7 @@ class ReportGenerator:
         return "、".join(labels[:max_items])
 
     def _is_significant_risk(self, c):
-        return is_significant(c)
+        return is_forecast_significant(c)
 
     def _format_county_risk(self, c, is_highest=False):
         name = c["name"]
@@ -502,7 +506,7 @@ class ReportGenerator:
         affected_count = sum(
             1
             for room in rooms_data
-            if is_focus_warning(
+            if is_forecast_significant(
                 {
                     "maxTemp": room.get("tmax", 0),
                     "minTemp": room.get("tmin", 0),

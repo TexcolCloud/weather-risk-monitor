@@ -1,6 +1,9 @@
 .idea/
 .venv/
 .cache/
+logs/
+reports/
+outbox/
 __pycache__/
 *.pyc
 .ruff_cache/

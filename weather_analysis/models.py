@@ -101,3 +101,31 @@ class WeatherFetchResult(TypedDict, total=False):
     partialFailedRooms: list[str]
     warningFailedRooms: list[str]
     dailyIncompleteRooms: list[str]
+
+
+class HourlyRiskRoom(TypedDict, total=False):
+    name: str
+    county: str
+    timeRange: str
+    riskTime: str
+    weatherText: str
+    temperature: float | None
+    windScale: str
+    precipitation: float
+    stats: WeatherStats
+
+
+class HourlyRiskResult(TypedDict, total=False):
+    targetStart: str
+    immediateEnd: str
+    outlookEnd: str
+    updateTime: str | None
+    total: int
+    failed: int
+    partialFailed: int
+    warningFailed: int
+    immediateRisks: list[HourlyRiskRoom]
+    outlookRisks: list[HourlyRiskRoom]
+    failedRooms: list[str]
+    partialFailedRooms: list[str]
+    warningFailedRooms: list[str]

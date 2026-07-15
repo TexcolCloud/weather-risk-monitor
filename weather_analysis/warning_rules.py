@@ -168,9 +168,9 @@ def evaluate_hazards(data):
     elif max_cont_daily_35 >= 3:
         hazards.append(_hazard("高温", "黄色", "national"))
 
-    if max_precip_3h >= 100:
+    if max_precip_3h > 100:
         hazards.append(_hazard("暴雨", "红色", "national"))
-    elif max_precip_3h >= 50:
+    elif max_precip_3h > 50:
         hazards.append(_hazard("暴雨", "橙色", "national"))
     elif max_precip_6h >= 50:
         hazards.append(_hazard("暴雨", "黄色", "national"))
@@ -216,6 +216,17 @@ def evaluate_hazards(data):
     return hazards
 
 
+def _forecast_data(data):
+    forecast_data = dict(data)
+    forecast_data["officialWarnings"] = []
+    return forecast_data
+
+
+def evaluate_forecast_hazards(data):
+    """Evaluate only forecast-derived hazards, excluding official alert influence."""
+    return evaluate_hazards(_forecast_data(data))
+
+
 def warning_level(data):
     hazards = evaluate_hazards(data)
     if not hazards:
@@ -229,6 +240,15 @@ def report_level(items):
         level = warning_level(item)
         if level and (best is None or LEVEL_SCORE[level] > LEVEL_SCORE[best]):
             best = level
+    return REPORT_LEVEL.get(best) if best else None
+
+
+def forecast_report_level(items):
+    best = None
+    for item in items:
+        hazards = evaluate_forecast_hazards(item)
+        if hazards and (best is None or hazards[0]["severity"] > LEVEL_SCORE[best]):
+            best = hazards[0]["level"]
     return REPORT_LEVEL.get(best) if best else None
 
 
@@ -250,12 +270,27 @@ def risk_score(data):
     )
 
 
+def forecast_risk_score(data):
+    return risk_score(_forecast_data(data))
+
+
 def is_warning(data):
     return bool(evaluate_hazards(data))
 
 
+def is_forecast_warning(data):
+    return bool(evaluate_forecast_hazards(data))
+
+
 def is_significant(data):
     return max((h["severity"] for h in evaluate_hazards(data)), default=0) >= LEVEL_SCORE["橙色"]
+
+
+def is_forecast_significant(data):
+    return (
+        max((h["severity"] for h in evaluate_forecast_hazards(data)), default=0)
+        >= LEVEL_SCORE["橙色"]
+    )
 
 
 def is_focus_warning(data):

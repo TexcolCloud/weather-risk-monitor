@@ -1,6 +1,9 @@
 import unittest
 
-from weather_analysis.weather_stats import compute_weather_stats
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from weather_analysis.weather_stats import compute_weather_stats, hourly_window_stats
 
 
 def _daily(**overrides):
@@ -109,6 +112,31 @@ class WeatherStatsTest(unittest.TestCase):
         stats = compute_weather_stats([_daily(precip="60")], hourly)
 
         self.assertEqual(50, stats["maxPrecip3h"])
+
+    def test_hourly_window_requires_all_expected_hours_for_three_hour_rain(self):
+        start = datetime(2026, 7, 14, 8, tzinfo=ZoneInfo("Asia/Shanghai"))
+        hourly = [
+            {
+                "fxTime": "2026-07-14T08:00+08:00",
+                "temp": "38",
+                "precip": "20",
+                "windScale": "3-4",
+                "text": "小雨",
+            },
+            {
+                "fxTime": "2026-07-14T09:00+08:00",
+                "temp": "36",
+                "precip": "20",
+                "windScale": "4-5",
+                "text": "小雨",
+            },
+        ]
+
+        stats, records = hourly_window_stats(hourly, start, 3)
+
+        self.assertEqual(2, len(records))
+        self.assertFalse(stats["hourlyDataComplete"])
+        self.assertEqual(0, stats["maxPrecip3h"])
 
 
 if __name__ == "__main__":

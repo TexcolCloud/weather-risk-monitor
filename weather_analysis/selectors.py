@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from .warning_rules import risk_score
+from .warning_rules import forecast_risk_score
 
 
 def select_top_rooms(
@@ -15,7 +15,7 @@ def select_top_rooms(
     selected = []
     selected_keys = set()
     seen_counties = defaultdict(int)
-    sorted_rooms = sorted(rooms_data, key=risk_score, reverse=True)
+    sorted_rooms = sorted(rooms_data, key=forecast_risk_score, reverse=True)
 
     for room in sorted_rooms:
         county = room.get("county", "")

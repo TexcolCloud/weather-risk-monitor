@@ -3,7 +3,7 @@
 from collections import defaultdict
 
 from .models import CountyRisk, OfficialWarning, Room, WeatherStats
-from .warning_rules import risk_score
+from .warning_rules import forecast_risk_score
 
 
 def to_number(value, default=0):
@@ -110,7 +110,7 @@ class CountyAggregator:
             }
             stats.append(county_risk)
 
-        stats.sort(key=risk_score, reverse=True)
+        stats.sort(key=forecast_risk_score, reverse=True)
         return stats
 
 

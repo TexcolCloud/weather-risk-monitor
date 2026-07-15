@@ -9,6 +9,7 @@ description = "示例区域机房极端天气预警报告生成工具"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "apscheduler>=3.11,<4",
     "httpx>=0.28.0",
 ]
 

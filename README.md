@@ -11,6 +11,22 @@ python -m pip install -e .
 weather-analysis
 ```
 
+### 常驻定时任务
+
+```powershell
+weather-analysis daemon
+```
+
+守护进程会在每个整点执行一次机房风险预测，并分别输出下一小时风险和未来3小时重点过程；每天 `08:10`、`20:10` 执行完整7天预测。启动后默认立即检查下一完整小时，可用 `--no-immediate` 关闭。
+
+风险等级以和风天气按机房经纬度返回的温度、风力、降水和天气现象为准；官方预警仅附在已经达到数据风险阈值的机房中，作为辅助信息。
+
+```powershell
+weather-analysis hourly --at 2026-07-15T09:00+08:00
+```
+
+运行日志保存在 `logs/weather-analysis.log`，按日轮转并保留30天。完整报告和逐小时审计结果保存在 `reports/`，待外发清单保存在 `outbox/`；默认不会发送网络消息。
+
 清除本地天气缓存：
 
 ```powershell

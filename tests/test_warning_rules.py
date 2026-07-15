@@ -1,6 +1,11 @@
 import unittest
 
-from weather_analysis.warning_rules import evaluate_hazards, report_level, risk_score
+from weather_analysis.warning_rules import (
+    evaluate_hazards,
+    is_forecast_significant,
+    report_level,
+    risk_score,
+)
 
 
 def _hazards(data):
@@ -25,9 +30,13 @@ class WarningRulesTest(unittest.TestCase):
         self.assertNotIn(("大风", "红色"), hazards)
 
     def test_rainstorm_uses_rolling_precipitation_windows(self):
-        hazards = _hazards({"maxPrecip3h": 50})
+        hazards = _hazards({"maxPrecip3h": 50.1})
 
         self.assertIn(("暴雨", "橙色"), hazards)
+
+    def test_exact_rainstorm_thresholds_do_not_trigger(self):
+        self.assertNotIn(("暴雨", "橙色"), _hazards({"maxPrecip3h": 50}))
+        self.assertNotIn(("暴雨", "红色"), _hazards({"maxPrecip3h": 100}))
 
     def test_report_level_uses_highest_hazard_level(self):
         level = report_level(
@@ -54,6 +63,16 @@ class WarningRulesTest(unittest.TestCase):
         )
 
         self.assertIn(("雷暴", "橙色"), hazards)
+
+    def test_official_warning_alone_is_not_a_forecast_risk(self):
+        warning_only = {
+            "officialWarnings": [
+                {"typeName": "高温", "levelScore": 4, "title": "高温红色预警"}
+            ]
+        }
+
+        self.assertFalse(is_forecast_significant(warning_only))
+        self.assertTrue(is_forecast_significant({"tmax": 38, **warning_only}))
 
     def test_all_official_warning_types_are_kept(self):
         hazards = _hazards(

@@ -98,6 +98,54 @@ def _max_rolling_sum(records, window):
     return round(best, 1)
 
 
+def hourly_window_stats(hourly, start: datetime, hours: int) -> tuple[WeatherStats, list[dict]]:
+    """Calculate risk inputs for an exact, contiguous hourly forecast window."""
+    if hours < 1:
+        raise ValueError("hours must be positive")
+
+    expected = [start + timedelta(hours=index) for index in range(hours)]
+    records, _ = _prepare_hourly(hourly)
+    by_time = dict(records)
+    window = [by_time[time] for time in expected if time in by_time]
+    complete = len(window) == hours
+
+    stats = empty_weather_stats()
+    stats["hourlyDataComplete"] = complete
+    if not window:
+        return stats, []
+
+    temperatures = []
+    precipitation = []
+    max_wind = 0
+    flags = {key: False for key in WARNING_KEYS}
+    for hour in window:
+        temperature = _safe_float(hour.get("temp"), None)
+        precip = _safe_float(hour.get("precip"), None)
+        if temperature is None or precip is None:
+            stats["hourlyDataComplete"] = False
+        if temperature is not None:
+            temperatures.append(temperature)
+        if precip is not None:
+            precipitation.append(max(precip, 0.0))
+        max_wind = max(max_wind, _wind_scale_max(hour.get("windScale", "")))
+        _set_weather_flags(flags, hour.get("text", ""))
+
+    stats.update(
+        {
+            "tmax": max(temperatures) if temperatures else None,
+            "tmin": min(temperatures) if temperatures else None,
+            "maxWind": max_wind,
+            "maxPrecip": max(precipitation, default=0.0),
+            # Only a complete three-hour window can support a rainstorm rule.
+            "maxPrecip3h": round(sum(precipitation), 1)
+            if hours == 3 and stats["hourlyDataComplete"]
+            else 0.0,
+            **flags,
+        }
+    )
+    return stats, window
+
+
 def _set_weather_flags(flags, text):
     for key, keywords in WEATHER_KEYWORDS.items():
         flag = f"has{key[0].upper()}{key[1:]}"

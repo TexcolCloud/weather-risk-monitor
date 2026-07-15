@@ -6,7 +6,7 @@ from weather_analysis.weather import WeatherService
 
 
 class WeatherServiceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_official_warning_survives_daily_forecast_failure(self):
+    async def test_official_warning_does_not_replace_missing_forecast_data(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
             if endpoint == "warning":
                 return {
@@ -35,8 +35,8 @@ class WeatherServiceTest(unittest.IsolatedAsyncioTestCase):
             result = await WeatherService.run(locations)
 
         self.assertEqual(1, result["failed"])
-        self.assertEqual(1, result["warned"])
-        self.assertEqual("红色", result["counties"][0]["officialWarningLevel"])
+        self.assertEqual(0, result["warned"])
+        self.assertEqual([], result["counties"])
 
     async def test_empty_hourly_and_failed_warning_sources_are_reported(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
