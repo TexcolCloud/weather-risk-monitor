@@ -2,7 +2,7 @@ import unittest
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 from zoneinfo import ZoneInfo
 
 from weather_analysis.runtime_state import RunStateStore
@@ -61,6 +61,13 @@ class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
             await runner.run_hourly_risk(target, publish=True)
 
         self.assertEqual(2, fetch.await_count)
+        self.assertEqual(
+            [
+                call([], target, force_refresh=False),
+                call([], target, force_refresh=True),
+            ],
+            fetch.await_args_list,
+        )
         self.assertEqual(2, artifacts.write_json.call_count)
         artifacts.mark_preview.assert_called_once()
         artifacts.mark_not_required.assert_not_called()

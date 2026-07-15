@@ -7,10 +7,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from .paths import APP_DATA_DIR
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-REPORTS_DIR = PROJECT_ROOT / "reports"
-OUTBOX_DIR = PROJECT_ROOT / "outbox"
+
+REPORTS_DIR = APP_DATA_DIR / "reports"
+OUTBOX_DIR = APP_DATA_DIR / "outbox"
 ARTIFACT_RETENTION_DAYS = int(os.environ.get("WEATHER_ANALYSIS_ARTIFACT_RETENTION_DAYS", "365"))
 
 

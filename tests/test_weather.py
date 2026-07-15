@@ -7,6 +7,48 @@ from weather_analysis.weather import WeatherService
 
 
 class WeatherServiceTest(unittest.IsolatedAsyncioTestCase):
+    async def test_partial_daily_failure_does_not_abort_successful_rooms(self):
+        async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
+            if endpoint == "7d":
+                if lon == 112.0:
+                    return None
+                return {
+                    "code": "200",
+                    "daily": [
+                        {
+                            "fxDate": "2026-07-14",
+                            "tempMax": "30",
+                            "tempMin": "20",
+                            "precip": "0",
+                            "windScaleDay": "1",
+                            "windScaleNight": "1",
+                        }
+                    ],
+                }
+            if endpoint == "168h":
+                return {
+                    "code": "200",
+                    "hourly": [
+                        {
+                            "fxTime": "2026-07-14T00:00+08:00",
+                            "temp": "25",
+                            "precip": "0",
+                            "text": "晴",
+                        }
+                    ],
+                }
+            return {"code": "200", "warning": []}
+
+        locations = [
+            {"name": "A", "county": "C1", "lat": 30.0, "lon": 111.0},
+            {"name": "B", "county": "C2", "lat": 31.0, "lon": 112.0},
+        ]
+        with patch.object(QWeatherClient, "fetch", new=fake_fetch):
+            result = await WeatherService.run(locations)
+
+        self.assertEqual(1, result["failed"])
+        self.assertEqual(["B"], result["failedRooms"])
+
     async def test_official_warning_does_not_replace_missing_forecast_data(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
             if endpoint == "warning":

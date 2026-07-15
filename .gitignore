@@ -1,6 +1,7 @@
 .idea/
 .venv/
 .cache/
+cache/
 logs/
 reports/
 outbox/

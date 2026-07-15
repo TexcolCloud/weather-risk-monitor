@@ -21,13 +21,15 @@ weather-analysis daemon
 
 风险等级以和风天气按机房经纬度返回的温度、风力、降水和天气现象为准；官方预警仅附在已经达到数据风险阈值的机房中，作为辅助信息。
 
-守护进程使用 `runtime/` 保存完整预测的执行状态并防止重复启动。启动后会补跑当天已错过且尚未完成的 `08:10` 或 `20:10` 完整预测；启动即时检查仅生成本地预览，正式整点任务仍会重新获取数据并登记待外发结果。
+守护进程使用运行数据目录下的 `runtime/` 保存完整预测的执行状态并防止重复启动。启动后会补跑当天已错过且尚未完成的 `08:10` 或 `20:10` 完整预测；启动即时检查仅生成本地预览，正式整点任务会绕过缓存重新获取数据并登记待外发结果。
 
 ```powershell
 weather-analysis hourly --at 2026-07-15T09:00+08:00
 ```
 
-运行日志保存在 `logs/weather-analysis.log`，按日轮转并保留30天。完整报告和逐小时审计结果保存在 `reports/`，待外发清单保存在 `outbox/`；默认不会发送网络消息。
+运行日志保存在运行数据目录的 `logs/weather-analysis.log`，按日轮转并保留30天。完整报告和逐小时审计结果保存在 `reports/`，待外发清单保存在 `outbox/`；默认不会发送网络消息。
+
+运行数据目录在 Windows 上默认为 `%LOCALAPPDATA%/weather-analysis`，在其他系统上默认为 `$XDG_STATE_HOME/weather-analysis` 或 `~/.local/state/weather-analysis`。可通过 `WEATHER_ANALYSIS_DATA_DIR` 统一指定其他目录。
 
 报告、审计与待外发文件默认保留365天，可通过 `WEATHER_ANALYSIS_ARTIFACT_RETENTION_DAYS` 调整。和风天气请求默认限制为每秒10次，可通过 `WEATHER_ANALYSIS_MAX_REQUESTS_PER_SECOND` 调整。
 
@@ -37,7 +39,7 @@ weather-analysis hourly --at 2026-07-15T09:00+08:00
 weather-analysis --clear-cache
 ```
 
-缓存默认写入项目根目录的 `.cache/`，可通过 `WEATHER_ANALYSIS_CACHE_DIR` 指定其他目录。
+缓存默认写入运行数据目录的 `cache/`，仍可通过 `WEATHER_ANALYSIS_CACHE_DIR` 单独指定其他目录。
 
 ## 测试
 
@@ -61,6 +63,7 @@ weather_analysis/
 ├── selectors.py             # 重点机房选择
 ├── report.py                # 报告文案与排版
 ├── cache.py                 # 本地接口缓存
+├── paths.py                 # 可配置的运行数据目录
 ├── config.py                # 运行配置和机房清单加载
 └── cli.py                   # 命令行入口
 ```

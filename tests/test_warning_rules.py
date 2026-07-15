@@ -18,10 +18,10 @@ class WarningRulesTest(unittest.TestCase):
         self.assertIn(("橙色高温", "橙色"), _hazards({"tmax": 38}))
         self.assertIn(("高温", "黄色"), _hazards({"tmax": 36, "maxContDaily35": 3}))
 
-    def test_exact_high_temperature_thresholds_do_not_trigger(self):
-        self.assertNotIn(("红色高温", "红色"), _hazards({"tmax": 40}))
-        self.assertNotIn(("橙色高温", "橙色"), _hazards({"tmax": 37}))
-        self.assertFalse(_hazards({"tmax": 35, "maxContDaily35": 0}))
+    def test_exact_high_temperature_thresholds_trigger(self):
+        self.assertIn(("红色高温", "红色"), _hazards({"tmax": 40}))
+        self.assertIn(("橙色高温", "橙色"), _hazards({"tmax": 37}))
+        self.assertIn(("高温", "黄色"), _hazards({"tmax": 35, "maxContDaily35": 3}))
 
     def test_wind_level_uses_national_scale_thresholds(self):
         hazards = _hazards({"maxWind": 8})
@@ -34,9 +34,9 @@ class WarningRulesTest(unittest.TestCase):
 
         self.assertIn(("暴雨", "橙色"), hazards)
 
-    def test_exact_rainstorm_thresholds_do_not_trigger(self):
-        self.assertNotIn(("暴雨", "橙色"), _hazards({"maxPrecip3h": 50}))
-        self.assertNotIn(("暴雨", "红色"), _hazards({"maxPrecip3h": 100}))
+    def test_exact_rainstorm_thresholds_trigger(self):
+        self.assertIn(("暴雨", "橙色"), _hazards({"maxPrecip3h": 50}))
+        self.assertIn(("暴雨", "红色"), _hazards({"maxPrecip3h": 100}))
 
     def test_report_level_uses_highest_hazard_level(self):
         level = report_level(

@@ -5,11 +5,15 @@ import tempfile
 import time
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from .paths import APP_DATA_DIR
+
+
 _CACHE_OVERRIDE = os.environ.get("WEATHER_ANALYSIS_CACHE_DIR") or os.environ.get(
     "QWEATHER_CACHE_DIR"
 )
-_CACHE_DIR = Path(_CACHE_OVERRIDE or _PROJECT_ROOT / ".cache")
+_CACHE_DIR = (
+    Path(_CACHE_OVERRIDE).expanduser().resolve() if _CACHE_OVERRIDE else APP_DATA_DIR / "cache"
+)
 
 DAILY_TTL = 3 * 60 * 60  # 3 hours
 HOURLY_TTL = 45 * 60  # 45 minutes

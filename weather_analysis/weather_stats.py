@@ -183,7 +183,7 @@ def compute_weather_stats(daily, hourly) -> WeatherStats:
 
     for day in daily_records:
         daily_tmax = _safe_int(day.get("tempMax"), None)
-        if daily_tmax is not None and daily_tmax > 35:
+        if daily_tmax is not None and daily_tmax >= 35:
             cur_daily_35 += 1
             max_cont_daily_35 = max(max_cont_daily_35, cur_daily_35)
         else:
@@ -238,25 +238,25 @@ def compute_weather_stats(daily, hourly) -> WeatherStats:
         hourly_precip.append((fx_time, precip))
         _set_weather_flags(flags, hour.get("text", ""))
 
-        if temperature is not None and temperature > 40:
+        if temperature is not None and temperature >= 40:
             hours_above_40 += 1
             cur_40 += 1
             max_cont_40 = max(max_cont_40, cur_40)
         else:
             cur_40 = 0
-        if temperature is not None and temperature > 38:
+        if temperature is not None and temperature >= 38:
             hours_above_38 += 1
             cur_38 += 1
             max_cont_38 = max(max_cont_38, cur_38)
         else:
             cur_38 = 0
-        if temperature is not None and temperature > 37:
+        if temperature is not None and temperature >= 37:
             hours_above_37 += 1
             cur_37 += 1
             max_cont_37 = max(max_cont_37, cur_37)
         else:
             cur_37 = 0
-        if temperature is not None and temperature > 35:
+        if temperature is not None and temperature >= 35:
             hours_above_35 += 1
         if temperature is not None and temperature <= 0:
             hours_below_0 += 1

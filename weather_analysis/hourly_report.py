@@ -42,13 +42,13 @@ def _risk_reason(room: dict) -> str:
     labels = [hazard["name"] for hazard in hazards]
     if labels:
         parts.append("、".join(dict.fromkeys(labels[:2])))
-    has_temperature_risk = stats.get("tmax") is not None and stats["tmax"] > 37
+    has_temperature_risk = stats.get("tmax") is not None and stats["tmax"] >= 37
     has_wind_risk = stats.get("maxWind", 0) >= 10
     if room.get("temperature") is not None and has_temperature_risk:
         parts.append(f"{_format_time(room.get('riskTime', ''))}温度{room['temperature']:g}℃")
     if room.get("windScale") and has_wind_risk:
         parts.append(f"风力{room['windScale']}级")
-    if stats.get("maxPrecip3h", 0) > 50:
+    if stats.get("maxPrecip3h", 0) >= 50:
         parts.append(f"3小时降水{stats['maxPrecip3h']:g}毫米")
     elif room.get("weatherText"):
         parts.append(room["weatherText"])

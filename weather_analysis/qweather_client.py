@@ -167,10 +167,11 @@ class QWeatherClient:
         if delay > 0:
             await asyncio.sleep(delay)
 
-    async def fetch(self, url, params, lat, lon, endpoint, ttl):
-        cached = cache.get(lat, lon, endpoint, ttl)
-        if cached is not None:
-            return cached
+    async def fetch(self, url, params, lat, lon, endpoint, ttl, force_refresh=False):
+        if not force_refresh:
+            cached = cache.get(lat, lon, endpoint, ttl)
+            if cached is not None:
+                return cached
         if self._client is None:
             raise RuntimeError("QWeatherClient must be used as an async context manager")
 

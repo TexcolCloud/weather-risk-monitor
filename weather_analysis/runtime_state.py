@@ -6,9 +6,10 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from .paths import APP_DATA_DIR
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RUNTIME_DIR = PROJECT_ROOT / "runtime"
+
+RUNTIME_DIR = APP_DATA_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "weather-analysis-state.json"
 LOCK_PATH = RUNTIME_DIR / "weather-analysis.lock"
 

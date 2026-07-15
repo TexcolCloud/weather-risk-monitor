@@ -3,10 +3,11 @@
 import logging
 import sys
 from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
+
+from .paths import APP_DATA_DIR
 
 
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR = APP_DATA_DIR / "logs"
 LOG_FILE = LOG_DIR / "weather-analysis.log"
 _FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 

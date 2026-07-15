@@ -42,7 +42,7 @@ class WeatherStatsTest(unittest.TestCase):
 
         self.assertTrue(stats["hasThunder"])
 
-    def test_high_temperature_duration_uses_strict_above_threshold(self):
+    def test_high_temperature_duration_includes_exact_threshold(self):
         daily = [
             _daily(tempMax="35"),
             _daily(fxDate="2026-07-15", tempMax="36"),
@@ -64,8 +64,8 @@ class WeatherStatsTest(unittest.TestCase):
 
         stats = compute_weather_stats(daily, hourly)
 
-        self.assertEqual(1, stats["maxCont37"])
-        self.assertEqual(1, stats["maxContDaily35"])
+        self.assertEqual(2, stats["maxCont37"])
+        self.assertEqual(2, stats["maxContDaily35"])
 
     def test_hourly_gap_breaks_continuous_duration_and_rolling_window(self):
         hourly = [

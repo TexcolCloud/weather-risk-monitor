@@ -179,7 +179,7 @@ class WeatherService:
                     )
                 )
                 hourly_results = {
-                    name: hourly_results_by_location[location]
+                    name: hourly_results_by_location.get(location)
                     for name, location in room_location_by_name.items()
                 }
 
@@ -264,7 +264,9 @@ class WeatherService:
         return result
 
     @staticmethod
-    async def run_hourly_risk(rooms: list[Room], target_start: datetime) -> HourlyRiskResult:
+    async def run_hourly_risk(
+        rooms: list[Room], target_start: datetime, force_refresh: bool = False
+    ) -> HourlyRiskResult:
         """Collect forecast data for one exact hour plus its three-hour outlook."""
         WeatherService._validate_rooms(rooms)
         if target_start.tzinfo is None:
@@ -276,6 +278,7 @@ class WeatherService:
         outlook_end = target_start + timedelta(hours=3)
 
         params_base = {"lang": "zh"}
+        fetch_options = {"force_refresh": True} if force_refresh else {}
         warning_key_by_name = {}
         room_location_by_name = {}
         async with QWeatherClient(QWEATHER_API_KEY) as client:
@@ -296,6 +299,7 @@ class WeatherService:
                         lon,
                         "168h",
                         cache.HOURLY_TTL,
+                        **fetch_options,
                     )
 
                 warning_key = room.get("county") or name
@@ -308,6 +312,7 @@ class WeatherService:
                         lon,
                         "warning",
                         cache.WARNING_TTL,
+                        **fetch_options,
                     )
 
             hourly_results_by_location = dict(

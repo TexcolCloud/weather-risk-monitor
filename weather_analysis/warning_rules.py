@@ -161,16 +161,16 @@ def evaluate_hazards(data):
                 )
             )
 
-    if max_temp > 40:
+    if max_temp >= 40:
         hazards.append(_hazard("红色高温", "红色", "national"))
-    elif max_temp > 37:
+    elif max_temp >= 37:
         hazards.append(_hazard("橙色高温", "橙色", "national"))
     elif max_cont_daily_35 >= 3:
         hazards.append(_hazard("高温", "黄色", "national"))
 
-    if max_precip_3h > 100:
+    if max_precip_3h >= 100:
         hazards.append(_hazard("暴雨", "红色", "national"))
-    elif max_precip_3h > 50:
+    elif max_precip_3h >= 50:
         hazards.append(_hazard("暴雨", "橙色", "national"))
     elif max_precip_6h >= 50:
         hazards.append(_hazard("暴雨", "黄色", "national"))

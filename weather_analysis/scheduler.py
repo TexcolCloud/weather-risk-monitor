@@ -129,7 +129,11 @@ class ScheduledJobRunner:
         target_start = target_start.replace(minute=0, second=0, microsecond=0)
 
         async def callback(started: datetime):
-            result = await WeatherService.run_hourly_risk(self.rooms, target_start)
+            result = await WeatherService.run_hourly_risk(
+                self.rooms,
+                target_start,
+                force_refresh=publish,
+            )
             artifact_time = datetime.fromisoformat(result["targetStart"])
             json_path = self.artifacts.write_json("hourly", artifact_time, result, started)
             high_risk_count = len(result["immediateRisks"]) + len(result["outlookRisks"])

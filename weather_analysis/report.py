@@ -110,7 +110,7 @@ class ReportGenerator:
             if temp_added:
                 return
             temp_added = True
-            if temp > 40:
+            if temp >= 40:
                 high_dates = find_temp_dates(c, 40, high=True)
                 cont = c.get("maxCont40", 0)
                 date_str = _fmt_date_range(high_dates)
@@ -120,10 +120,10 @@ class ReportGenerator:
                     desc_parts.append(f"最高{temp}℃")
                 if cont > 0:
                     desc_parts.append(f"40℃以上持续约{cont}小时")
-            elif temp > 37:
+            elif temp >= 37:
                 desc_parts.append(f"最高{temp}℃")
-                cont = c.get("maxCont38", 0) if temp > 38 else c.get("maxCont37", 0)
-                cont_label = "38℃以上" if temp > 38 else "37℃以上"
+                cont = c.get("maxCont38", 0) if temp >= 38 else c.get("maxCont37", 0)
+                cont_label = "38℃以上" if temp >= 38 else "37℃以上"
                 if cont > 0:
                     desc_parts.append(f"{cont_label}持续约{cont}小时")
             elif to_number(c.get("maxContDaily35")) >= 3:
@@ -191,7 +191,7 @@ class ReportGenerator:
 
         if not temp_added and (
             any(ht in ("红色高温", "橙色高温", "高温") for ht, _ in hazard_types)
-            or temp > 37
+            or temp >= 37
             or to_number(c.get("maxContDaily35")) >= 3
         ):
             append_high_temp()
@@ -285,7 +285,7 @@ class ReportGenerator:
         highest = next((c for c in warned_counties if c["name"] == highest_name), None)
         if (
             highest
-            and to_number(highest.get("maxTemp")) > 37
+            and to_number(highest.get("maxTemp")) >= 37
             and to_number(highest.get("maxCont37")) >= 3
         ):
             seen_temp.add(highest["name"])
@@ -301,7 +301,7 @@ class ReportGenerator:
         for c in warned_counties:
             name = c["name"]
             temp = to_number(c.get("maxTemp"))
-            if temp > 40 and name not in seen_temp:
+            if temp >= 40 and name not in seen_temp:
                 seen_temp.add(name)
                 temp_added += 1
                 dates = find_temp_dates(c, 40, high=True)
@@ -309,7 +309,7 @@ class ReportGenerator:
                     entries.append(
                         f"{_fmt_date_range(dates)}：{name}连续出现{temp}℃红色高温，最高风险区域。"
                     )
-            elif temp > 37 and temp_added < 2 and c["maxCont37"] >= 3 and name not in seen_temp:
+            elif temp >= 37 and temp_added < 2 and c["maxCont37"] >= 3 and name not in seen_temp:
                 seen_temp.add(name)
                 temp_added += 1
                 dates = find_temp_dates(c, 37, high=True)
@@ -414,19 +414,19 @@ class ReportGenerator:
     def _room_focus_period(self, room):
         parts = []
         daily = room.get("dailySummary", [])
-        if to_number(room.get("tmax")) > 40:
+        if to_number(room.get("tmax")) >= 40:
             dates = [
                 d["date"]
                 for d in daily
-                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) > 40
+                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) >= 40
             ]
             date_text = _fmt_date_range(dates)
             parts.append(f"{date_text}高温" if date_text else "高温")
-        elif to_number(room.get("tmax")) > 37:
+        elif to_number(room.get("tmax")) >= 37:
             dates = [
                 d["date"]
                 for d in daily
-                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) > 37
+                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) >= 37
             ]
             date_text = _fmt_date_range(dates)
             parts.append(f"{date_text}高温" if date_text else "高温")
@@ -434,7 +434,7 @@ class ReportGenerator:
             dates = [
                 d["date"]
                 for d in daily
-                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) > 35
+                if to_number(d.get("tmax"), None) is not None and to_number(d.get("tmax")) >= 35
             ]
             date_text = _fmt_date_range(dates)
             parts.append(f"{date_text}连续高温" if date_text else "连续高温")

@@ -129,7 +129,7 @@ def find_temp_dates(county_risk, threshold, high=True):
         temperature = to_number(day.get("tmax" if high else "tmin"), None)
         if temperature is None:
             continue
-        if high and temperature > threshold:
+        if high and temperature >= threshold:
             dates.append(day.get("date", ""))
         elif not high and temperature <= threshold:
             dates.append(day.get("date", ""))

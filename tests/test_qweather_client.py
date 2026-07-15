@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import AsyncMock, Mock, patch
 
 from weather_analysis.qweather_client import QWeatherClient, normalize_warnings
 
@@ -35,6 +36,34 @@ class QWeatherClientTest(unittest.TestCase):
         self.assertEqual("橙色", normalize_warnings(v7)[0]["color"])
         self.assertEqual("暴雨", normalize_warnings(v1)[0]["typeName"])
         self.assertEqual(4, normalize_warnings(v1)[0]["levelScore"])
+
+
+class QWeatherClientAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_force_refresh_bypasses_cached_payload(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"code": "200", "hourly": []}
+        client = QWeatherClient("test-key")
+        client._client = AsyncMock()
+        client._client.get.return_value = response
+
+        with (
+            patch("weather_analysis.qweather_client.cache.get") as cache_get,
+            patch("weather_analysis.qweather_client.cache.set") as cache_set,
+            patch.object(client, "_wait_for_request_slot", new=AsyncMock()),
+        ):
+            result = await client.fetch(
+                "https://example.invalid",
+                {},
+                30.0,
+                111.0,
+                "168h",
+                60,
+                force_refresh=True,
+            )
+
+        cache_get.assert_not_called()
+        cache_set.assert_called_once()
+        self.assertEqual("200", result["code"])
 
 
 if __name__ == "__main__":
