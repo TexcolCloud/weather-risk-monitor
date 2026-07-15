@@ -12,21 +12,18 @@ class RuntimePathsTest(unittest.TestCase):
 
             actual = resolve_data_dir(
                 {"WEATHER_ANALYSIS_DATA_DIR": str(expected)},
-                os_name="nt",
-                home=Path(temporary) / "home",
+                project_root=Path(temporary) / "project",
             )
 
             self.assertEqual(expected.resolve(), actual)
 
-    def test_platform_defaults_are_user_writable_locations(self):
+    def test_project_root_is_the_default_data_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
-            home = Path(temporary)
+            project_root = Path(temporary) / "project"
 
-            windows = resolve_data_dir({}, os_name="nt", home=home)
-            unix = resolve_data_dir({}, os_name="posix", home=home)
+            actual = resolve_data_dir({}, project_root=project_root)
 
-            self.assertEqual((home / "AppData" / "Local" / "weather-analysis").resolve(), windows)
-            self.assertEqual((home / ".local" / "state" / "weather-analysis").resolve(), unix)
+            self.assertEqual(project_root.resolve(), actual)
 
 
 if __name__ == "__main__":

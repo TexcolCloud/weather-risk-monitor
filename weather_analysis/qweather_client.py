@@ -125,6 +125,8 @@ class QWeatherClient:
         max_concurrent: int = MAX_CONCURRENT,
         max_requests_per_second: int = MAX_REQUESTS_PER_SECOND,
     ):
+        if not api_key.strip():
+            raise ValueError("QWEATHER_API_KEY is not configured")
         if max_requests_per_second < 1:
             raise ValueError("max_requests_per_second must be positive")
         self._headers = {"X-QW-API-KEY": api_key}

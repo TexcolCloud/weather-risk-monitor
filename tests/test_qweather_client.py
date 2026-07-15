@@ -5,6 +5,10 @@ from weather_analysis.qweather_client import QWeatherClient, normalize_warnings
 
 
 class QWeatherClientTest(unittest.TestCase):
+    def test_api_key_is_required(self):
+        with self.assertRaisesRegex(ValueError, "QWEATHER_API_KEY"):
+            QWeatherClient("")
+
     def test_rate_limit_must_be_positive(self):
         with self.assertRaises(ValueError):
             QWeatherClient("test-key", max_requests_per_second=0)

@@ -11,6 +11,12 @@ python -m pip install -e .
 weather-analysis
 ```
 
+首次运行前，在项目根目录创建 `.env` 并配置和风天气 API Key；可参考 `.env.example`：
+
+```dotenv
+QWEATHER_API_KEY=your-api-key
+```
+
 ### 常驻定时任务
 
 ```powershell
@@ -29,7 +35,7 @@ weather-analysis hourly --at 2026-07-15T09:00+08:00
 
 运行日志保存在运行数据目录的 `logs/weather-analysis.log`，按日轮转并保留30天。完整报告和逐小时审计结果保存在 `reports/`，待外发清单保存在 `outbox/`；默认不会发送网络消息。
 
-运行数据目录在 Windows 上默认为 `%LOCALAPPDATA%/weather-analysis`，在其他系统上默认为 `$XDG_STATE_HOME/weather-analysis` 或 `~/.local/state/weather-analysis`。可通过 `WEATHER_ANALYSIS_DATA_DIR` 统一指定其他目录。
+运行数据目录暂时默认为项目根目录，因此 `logs/`、`cache/`、`reports/`、`outbox/` 和 `runtime/` 都直接保存在项目内。可通过 `WEATHER_ANALYSIS_DATA_DIR` 统一指定其他目录。
 
 报告、审计与待外发文件默认保留365天，可通过 `WEATHER_ANALYSIS_ARTIFACT_RETENTION_DAYS` 调整。和风天气请求默认限制为每秒10次，可通过 `WEATHER_ANALYSIS_MAX_REQUESTS_PER_SECOND` 调整。
 

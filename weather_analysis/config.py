@@ -1,7 +1,15 @@
 import json
+import os
 from pathlib import Path
 
-QWEATHER_API_KEY = ""
+from dotenv import load_dotenv
+
+from .paths import PROJECT_ROOT
+
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+QWEATHER_API_KEY = os.environ.get("QWEATHER_API_KEY", "")
 
 FORECAST_DAYS = "7d"
 HOURLY_HOURS = "168"
