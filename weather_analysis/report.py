@@ -13,7 +13,7 @@ from .selectors import select_top_rooms
 from .warning_rules import (
     evaluate_forecast_hazards,
     forecast_report_level,
-    is_forecast_significant,
+    is_forecast_alert,
 )
 
 
@@ -80,7 +80,7 @@ class ReportGenerator:
         return "、".join(labels[:max_items])
 
     def _is_significant_risk(self, c):
-        return is_forecast_significant(c)
+        return is_forecast_alert(c)
 
     def _format_county_risk(self, c, is_highest=False):
         name = c["name"]
@@ -363,7 +363,7 @@ class ReportGenerator:
 
     def _generate_reminder(self, warned_counties):
         if not warned_counties:
-            return f"{self.region}综合服务支撑中心提醒：未来7天天气状况良好，适宜开展各项作业。"
+            return f"{self.region}综合服务支撑中心提醒：未来168小时天气状况良好，适宜开展各项作业。"
 
         top_names = [c["name"] for c in warned_counties[:4]]
         names_str = "、".join(top_names)
@@ -491,8 +491,8 @@ class ReportGenerator:
         failed = weather_data.get("failed", 0)
         partial_failed = weather_data.get("partialFailed", 0)
         warning_failed = weather_data.get("warningFailed", 0)
-        daily_incomplete = weather_data.get("dailyIncomplete", 0)
         auxiliary_warnings = weather_data.get("auxiliaryWarnings", [])
+        official_suggestions = weather_data.get("officialSuggestions", [])
 
         today_str = ""
         if update_time:
@@ -507,7 +507,7 @@ class ReportGenerator:
         affected_count = sum(
             1
             for room in rooms_data
-            if is_forecast_significant(
+            if is_forecast_alert(
                 {
                     "maxTemp": room.get("tmax", 0),
                     "minTemp": room.get("tmin", 0),
@@ -542,26 +542,26 @@ class ReportGenerator:
         if affected_count > 0:
             if affected_count == total:
                 lines.append(
-                    f"未来7天全市{total}个机房均受天气影响，"
-                    f"其中{affected_count}个机房达到重点预警标准，"
+                    f"未来168小时全市{total}个机房均受天气影响，"
+                    f"其中{affected_count}个机房达到机房预警标准，"
                     f"综合等级为{overall_level}。"
                 )
             else:
                 lines.append(
-                    f"未来7天全市{total}个机房中有{affected_count}个达到重点预警标准，"
+                    f"未来168小时全市{total}个机房中有{affected_count}个达到机房预警标准，"
                     f"综合等级为{overall_level}。"
                 )
         else:
             if failed:
                 lines.append(
-                    f"未来7天全市{total}个机房暂未识别到重大天气预警，"
+                    f"未来168小时全市{total}个机房暂未识别到机房预警，"
                     f"但有{failed}个机房天气数据获取失败，需补充核查。"
                 )
             else:
-                lines.append(f"未来7天全市{total}个机房暂无重大天气预警。")
+                lines.append(f"未来168小时全市{total}个机房暂无机房预警。")
         if failed:
             lines.append(
-                f"数据提示：{failed}个机房日预报数据获取失败，相关风险未按官方预警单独判定。"
+                f"数据提示：{failed}个机房168小时预报数据获取失败，相关风险未按官方预警单独判定。"
             )
         if auxiliary_warnings:
             summaries = []
@@ -573,10 +573,6 @@ class ReportGenerator:
                     )
             if summaries:
                 lines.append(f"辅助核查：预报数据缺失区域存在官方预警，{'；'.join(summaries)}。")
-        if daily_incomplete:
-            lines.append(
-                f"数据提示：{daily_incomplete}个机房日预报字段不完整，相关温度判断可能不完整。"
-            )
         if partial_failed:
             lines.append(
                 f"数据提示：{partial_failed}个机房小时级天气数据缺失或不连续，"
@@ -586,6 +582,16 @@ class ReportGenerator:
             lines.append(
                 f"数据提示：{warning_failed}个机房未取得官方预警数据，已按天气预报结果判断。"
             )
+        if official_suggestions:
+            summaries = []
+            for item in official_suggestions[:3]:
+                warning = next(iter(item.get("warnings", [])), None)
+                if isinstance(warning, dict) and warning.get("title"):
+                    summaries.append(
+                        f"{item.get('county', '未分区')}：{_compact_warning_title(warning['title'])}"
+                    )
+            if summaries:
+                lines.append(f"官方预警建议（不参与等级）：{'；'.join(summaries)}。")
         lines.append("")
 
         if warned_counties:

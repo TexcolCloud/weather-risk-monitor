@@ -25,8 +25,8 @@ class HourlyReportTest(unittest.TestCase):
 
         report = HourlyReportGenerator("示例区域").generate(result)
 
-        self.assertIn("下一小时高风险（08:00-09:00）", report)
-        self.assertIn("未来3小时重点过程（08:00-11:00）", report)
+        self.assertIn("下一小时预警（08:00-09:00）", report)
+        self.assertIn("未来3小时预警过程（08:00-11:00）", report)
         self.assertIn("A：红色高温；08:00温度41℃", report)
 
     def test_report_lists_every_risk_room(self):
@@ -51,7 +51,22 @@ class HourlyReportTest(unittest.TestCase):
 
         report = HourlyReportGenerator("示例区域").generate(result)
 
-        self.assertIn("下一小时发现11个高风险机房", report)
+        self.assertIn("下一小时发现11个预警机房", report)
         self.assertIn("A9", report)
         self.assertIn("A10：", report)
         self.assertNotIn("其余1个高风险机房", report)
+
+    def test_empty_sections_explain_the_yellow_threshold(self):
+        result = {
+            "targetStart": "2026-07-14T08:00:00+08:00",
+            "immediateEnd": "2026-07-14T09:00:00+08:00",
+            "outlookEnd": "2026-07-14T11:00:00+08:00",
+            "total": 1,
+            "immediateRisks": [],
+            "outlookRisks": [],
+        }
+
+        report = HourlyReportGenerator("示例区域").generate(result)
+
+        self.assertIn("暂无达到黄色及以上数据阈值的机房", report)
+        self.assertIn("暂无达到黄色及以上数据阈值的预警过程", report)

@@ -84,21 +84,21 @@ class HourlyReportGenerator:
 
         lines = [f"【{self.region}机房整点天气风险（{_format_date(start)}）】", ""]
         lines.append(
-            f"共检查{total}个机房，下一小时发现{len(immediate)}个高风险机房，"
-            f"未来3小时发现{len(outlook)}个重点过程。"
+            f"共检查{total}个机房，下一小时发现{len(immediate)}个预警机房，"
+            f"未来3小时发现{len(outlook)}个预警过程。"
         )
         lines.append("")
         self._append_section(
             lines,
-            f"一、下一小时高风险（{_format_time(start)}-{_format_time(immediate_end)}）",
+            f"一、下一小时预警（{_format_time(start)}-{_format_time(immediate_end)}）",
             immediate,
-            "暂无达到橙色、红色数据阈值的机房。",
+            "暂无达到黄色及以上数据阈值的机房。",
         )
         self._append_section(
             lines,
-            f"二、未来3小时重点过程（{_format_time(start)}-{_format_time(outlook_end)}）",
+            f"二、未来3小时预警过程（{_format_time(start)}-{_format_time(outlook_end)}）",
             outlook,
-            "暂无橙色、红色重点过程。",
+            "暂无达到黄色及以上数据阈值的预警过程。",
         )
         if result.get("failed") or result.get("partialFailed") or result.get("warningFailed"):
             lines.append(

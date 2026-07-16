@@ -101,12 +101,11 @@ class WeatherFetchResult(TypedDict, total=False):
     failed: int
     partialFailed: int
     warningFailed: int
-    dailyIncomplete: int
     failedRooms: list[str]
     partialFailedRooms: list[str]
     warningFailedRooms: list[str]
-    dailyIncompleteRooms: list[str]
     auxiliaryWarnings: list[AuxiliaryWarning]
+    officialSuggestions: list[AuxiliaryWarning]
 
 
 class HourlyRiskRoom(TypedDict, total=False):

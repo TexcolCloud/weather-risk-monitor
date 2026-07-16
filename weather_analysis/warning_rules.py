@@ -282,6 +282,14 @@ def is_forecast_warning(data):
     return bool(evaluate_forecast_hazards(data))
 
 
+def is_forecast_alert(data):
+    """Return whether forecast data reaches the yellow-or-higher room alert threshold."""
+    return (
+        max((h["severity"] for h in evaluate_forecast_hazards(data)), default=0)
+        >= LEVEL_SCORE["黄色"]
+    )
+
+
 def is_significant(data):
     return max((h["severity"] for h in evaluate_hazards(data)), default=0) >= LEVEL_SCORE["橙色"]
 

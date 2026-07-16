@@ -81,8 +81,8 @@ class ScheduledJobRunner:
     @staticmethod
     def _latest_full_target(now: datetime) -> datetime | None:
         candidates = [
-            now.replace(hour=8, minute=10, second=0, microsecond=0),
-            now.replace(hour=20, minute=10, second=0, microsecond=0),
+            now.replace(hour=8, minute=30, second=0, microsecond=0),
+            now.replace(hour=20, minute=30, second=0, microsecond=0),
         ]
         due = [target for target in candidates if target <= now]
         return max(due) if due else None

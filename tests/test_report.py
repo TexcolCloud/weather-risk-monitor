@@ -63,7 +63,7 @@ class ReportGeneratorTest(unittest.TestCase):
             }
         )
 
-        self.assertIn("暂无重大天气预警", report)
+        self.assertIn("暂无机房预警", report)
 
     def test_warning_without_significant_risk_does_not_crash(self):
         report = _generator().generate(
@@ -76,6 +76,35 @@ class ReportGeneratorTest(unittest.TestCase):
 
         self.assertIn("重点风险", report)
         self.assertIn("C", report)
+
+    def test_yellow_risk_is_counted_as_a_room_alert(self):
+        report = _generator().generate(
+            {
+                "counties": [_room(tmax=34, maxWind=8)],
+                "total": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+            }
+        )
+
+        self.assertIn("达到机房预警标准", report)
+
+    def test_official_warning_is_rendered_only_as_a_suggestion(self):
+        report = _generator().generate(
+            {
+                "counties": [],
+                "total": 1,
+                "updateTime": "2026-07-14T00:00+08:00",
+                "officialSuggestions": [
+                    {
+                        "county": "C",
+                        "warnings": [{"title": "C气象台发布高温红色预警"}],
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("暂无机房预警", report)
+        self.assertIn("官方预警建议（不参与等级）：C：C气象台高温红色预警", report)
 
     def test_failed_weather_data_is_reported_as_incomplete(self):
         report = _generator().generate(

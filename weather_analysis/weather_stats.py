@@ -1,4 +1,4 @@
-"""Pure calculations for daily and hourly weather forecasts."""
+"""Pure calculations for hourly weather forecasts."""
 
 import re
 from collections import deque
@@ -151,6 +151,103 @@ def _set_weather_flags(flags, text):
         flag = f"has{key[0].upper()}{key[1:]}"
         if not flags[flag] and any(keyword in text for keyword in keywords):
             flags[flag] = True
+
+
+def _daily_summary_from_hourly(records):
+    """Derive report-friendly calendar-day summaries from the 168-hour forecast."""
+    grouped = {}
+    for fx_time, hour in records:
+        date = fx_time.date().isoformat()
+        group = grouped.setdefault(
+            date,
+            {
+                "temperatures": [],
+                "precipitation": [],
+                "dayTexts": [],
+                "nightTexts": [],
+                "dayWind": 0,
+                "nightWind": 0,
+                "humidity": "",
+            },
+        )
+        temperature = _safe_float(hour.get("temp"), None)
+        precipitation = _safe_float(hour.get("precip"), None)
+        if temperature is not None:
+            group["temperatures"].append(temperature)
+        if precipitation is not None:
+            group["precipitation"].append(max(precipitation, 0.0))
+
+        text = str(hour.get("text", "")).strip()
+        wind = _wind_scale_max(hour.get("windScale", ""))
+        is_daytime = 6 <= fx_time.hour < 18
+        if text:
+            texts = group["dayTexts"] if is_daytime else group["nightTexts"]
+            if text not in texts:
+                texts.append(text)
+        if is_daytime:
+            group["dayWind"] = max(group["dayWind"], wind)
+        else:
+            group["nightWind"] = max(group["nightWind"], wind)
+        if not group["humidity"] and hour.get("humidity") is not None:
+            group["humidity"] = str(hour["humidity"])
+
+    return [
+        {
+            "fxDate": date,
+            "tempMax": max(group["temperatures"], default=None),
+            "tempMin": min(group["temperatures"], default=None),
+            "textDay": "、".join(group["dayTexts"]),
+            "textNight": "、".join(group["nightTexts"]),
+            "windScaleDay": str(group["dayWind"]) if group["dayWind"] else "",
+            "windScaleNight": str(group["nightWind"]) if group["nightWind"] else "",
+            "precip": round(sum(group["precipitation"]), 1),
+            "humidity": group["humidity"],
+        }
+        for date, group in sorted(grouped.items())
+    ]
+
+
+def compute_hourly_forecast_stats(hourly, expected_hours: int | None = None) -> WeatherStats:
+    """Calculate all full-report statistics from the 168-hour forecast response."""
+    records, hourly_complete = _prepare_hourly(hourly)
+    if not records:
+        return empty_weather_stats()
+
+    daily = _daily_summary_from_hourly(records)
+    stats = compute_weather_stats(daily, hourly)
+    temperatures = [
+        temperature
+        for _, hour in records
+        if (temperature := _safe_float(hour.get("temp"), None)) is not None
+    ]
+    max_wind = max((_wind_scale_max(hour.get("windScale", "")) for _, hour in records), default=0)
+    if expected_hours is not None and len(records) != expected_hours:
+        hourly_complete = False
+
+    stats.update(
+        {
+            "tmax": max(temperatures, default=None),
+            "tmin": min(temperatures, default=None),
+            "maxWind": max_wind,
+            "dailySummary": [
+                {
+                    "date": day["fxDate"],
+                    "tmax": day["tempMax"],
+                    "tmin": day["tempMin"],
+                    "textDay": day["textDay"],
+                    "textNight": day["textNight"],
+                    "windDay": day["windScaleDay"],
+                    "windNight": day["windScaleNight"],
+                    "precip": day["precip"],
+                    "humidity": day["humidity"],
+                }
+                for day in daily
+            ],
+            "dailyDataComplete": hourly_complete,
+            "hourlyDataComplete": stats["hourlyDataComplete"] and hourly_complete,
+        }
+    )
+    return stats
 
 
 def compute_weather_stats(daily, hourly) -> WeatherStats:

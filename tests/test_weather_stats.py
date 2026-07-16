@@ -3,7 +3,11 @@ import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from weather_analysis.weather_stats import compute_weather_stats, hourly_window_stats
+from weather_analysis.weather_stats import (
+    compute_hourly_forecast_stats,
+    compute_weather_stats,
+    hourly_window_stats,
+)
 
 
 def _daily(**overrides):
@@ -20,6 +24,47 @@ def _daily(**overrides):
 
 
 class WeatherStatsTest(unittest.TestCase):
+    def test_hourly_forecast_stats_builds_report_summary_from_hourly_data(self):
+        hourly = [
+            {
+                "fxTime": "2026-07-14T07:00+08:00",
+                "temp": "36",
+                "precip": "1",
+                "windScale": "2-3",
+                "text": "雷雨",
+            },
+            {
+                "fxTime": "2026-07-14T08:00+08:00",
+                "temp": "37.5",
+                "precip": "2",
+                "windScale": "3-4",
+                "text": "晴",
+            },
+        ]
+
+        stats = compute_hourly_forecast_stats(hourly)
+
+        self.assertEqual(37.5, stats["tmax"])
+        self.assertEqual(4, stats["maxWind"])
+        self.assertEqual(3, stats["dailySummary"][0]["precip"])
+        self.assertIn("雷雨", stats["dailySummary"][0]["textDay"])
+        self.assertTrue(stats["hourlyDataComplete"])
+
+    def test_hourly_forecast_stats_requires_the_full_168_hour_payload(self):
+        hourly = [
+            {
+                "fxTime": "2026-07-14T00:00+08:00",
+                "temp": "20",
+                "precip": "0",
+                "windScale": "1-2",
+                "text": "晴",
+            }
+        ]
+
+        stats = compute_hourly_forecast_stats(hourly, expected_hours=168)
+
+        self.assertFalse(stats["hourlyDataComplete"])
+
     def test_night_wind_scale_is_included(self):
         stats = compute_weather_stats(
             [_daily(windScaleNight="6-7")],

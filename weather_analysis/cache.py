@@ -15,7 +15,6 @@ _CACHE_DIR = (
     Path(_CACHE_OVERRIDE).expanduser().resolve() if _CACHE_OVERRIDE else APP_DATA_DIR / "cache"
 )
 
-DAILY_TTL = 3 * 60 * 60  # 3 hours
 HOURLY_TTL = 45 * 60  # 45 minutes
 WARNING_TTL = 15 * 60  # 15 minutes
 

@@ -2,6 +2,7 @@ import unittest
 
 from weather_analysis.warning_rules import (
     evaluate_hazards,
+    is_forecast_alert,
     is_forecast_significant,
     report_level,
     risk_score,
@@ -71,6 +72,15 @@ class WarningRulesTest(unittest.TestCase):
 
         self.assertFalse(is_forecast_significant(warning_only))
         self.assertTrue(is_forecast_significant({"tmax": 38, **warning_only}))
+
+    def test_forecast_alert_includes_yellow_but_excludes_blue(self):
+        self.assertTrue(is_forecast_alert({"maxWind": 8}))
+        self.assertFalse(is_forecast_alert({"maxWind": 6}))
+        self.assertFalse(
+            is_forecast_alert(
+                {"officialWarnings": [{"typeName": "高温", "levelScore": 4}]}
+            )
+        )
 
     def test_all_official_warning_types_are_kept(self):
         hazards = _hazards(

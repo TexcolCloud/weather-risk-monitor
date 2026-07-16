@@ -11,7 +11,6 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 QWEATHER_API_KEY = os.environ.get("QWEATHER_API_KEY", "")
 
-FORECAST_DAYS = "7d"
 HOURLY_HOURS = "168"
 QWEATHER_BASE_URL = "https://devapi.qweather.com/v7/weather"
 QWEATHER_WARNING_URL = "https://devapi.qweather.com/v7/warning/now"

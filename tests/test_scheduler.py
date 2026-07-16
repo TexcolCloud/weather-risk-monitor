@@ -39,6 +39,15 @@ class SchedulerTest(unittest.TestCase):
 
         self.assertEqual(datetime(2026, 7, 14, 9, tzinfo=TIMEZONE), next_complete_hour(now))
 
+    def test_full_forecast_targets_use_the_configured_half_hours(self):
+        self.assertIsNone(
+            ScheduledJobRunner._latest_full_target(datetime(2026, 7, 14, 8, 29, tzinfo=TIMEZONE))
+        )
+        self.assertEqual(
+            datetime(2026, 7, 14, 8, 30, tzinfo=TIMEZONE),
+            ScheduledJobRunner._latest_full_target(datetime(2026, 7, 14, 8, 30, tzinfo=TIMEZONE)),
+        )
+
     def test_immediate_hourly_is_skipped_close_to_the_hour(self):
         self.assertFalse(
             should_run_immediate_hourly(datetime(2026, 7, 14, 18, 59, 59, tzinfo=TIMEZONE))
@@ -186,7 +195,7 @@ class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
         artifacts.publish.assert_called_once()
 
     async def test_missed_full_forecast_runs_once_per_scheduled_target(self):
-        target = datetime(2026, 7, 14, 8, 10, tzinfo=TIMEZONE)
+        target = datetime(2026, 7, 14, 8, 30, tzinfo=TIMEZONE)
         with tempfile.TemporaryDirectory() as temporary:
             state_store = RunStateStore(Path(temporary) / "state.json")
             runner = ScheduledJobRunner([], artifacts=Mock(), state_store=state_store)
@@ -196,8 +205,8 @@ class ScheduledJobRunnerTest(unittest.IsolatedAsyncioTestCase):
                 "run_full_forecast",
                 new=AsyncMock(return_value=(result, "report")),
             ) as full_run:
-                await runner.run_missed_full_forecast(datetime(2026, 7, 14, 8, 15, tzinfo=TIMEZONE))
-                await runner.run_missed_full_forecast(datetime(2026, 7, 14, 8, 16, tzinfo=TIMEZONE))
+                await runner.run_missed_full_forecast(datetime(2026, 7, 14, 8, 35, tzinfo=TIMEZONE))
+                await runner.run_missed_full_forecast(datetime(2026, 7, 14, 8, 36, tzinfo=TIMEZONE))
 
             full_run.assert_awaited_once_with(target)
             self.assertTrue(state_store.is_completed("full", target))

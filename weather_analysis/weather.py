@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from . import cache
 from .config import (
-    FORECAST_DAYS,
     HOURLY_HOURS,
     QWEATHER_API_KEY,
     QWEATHER_BASE_URL,
@@ -16,10 +15,13 @@ from .models import HourlyRiskResult, Room, WeatherFetchResult
 from .qweather_client import QWeatherClient, normalize_warnings
 from .warning_rules import (
     forecast_risk_score,
-    is_forecast_significant,
-    is_forecast_warning,
+    is_forecast_alert,
 )
-from .weather_stats import compute_weather_stats, empty_weather_stats, hourly_window_stats
+from .weather_stats import (
+    compute_hourly_forecast_stats,
+    empty_weather_stats,
+    hourly_window_stats,
+)
 
 
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -27,9 +29,9 @@ LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 class WeatherService:
     @staticmethod
-    def _compute_stats(daily, hourly):
+    def _compute_stats(hourly):
         """Compatibility wrapper for callers migrating to weather_stats."""
-        return compute_weather_stats(daily, hourly)
+        return compute_hourly_forecast_stats(hourly, expected_hours=int(HOURLY_HOURS))
 
     @staticmethod
     def _validate_rooms(rooms: list[Room]) -> None:
@@ -90,12 +92,11 @@ class WeatherService:
         WeatherService._validate_rooms(rooms)
 
         params_base = {"lang": "zh"}
-        rooms_by_name = {room["name"]: room for room in rooms}
         warning_key_by_name = {}
         room_location_by_name = {}
 
         async with QWeatherClient(QWEATHER_API_KEY) as client:
-            daily_tasks = {}
+            hourly_tasks = {}
             warning_tasks = {}
             for room in rooms:
                 name = room["name"]
@@ -104,14 +105,14 @@ class WeatherService:
                 location = client.location(room)
                 room_location_by_name[name] = location
                 params = {**params_base, "location": location}
-                if location not in daily_tasks:
-                    daily_tasks[location] = client.fetch(
-                        f"{QWEATHER_BASE_URL}/{FORECAST_DAYS}",
+                if location not in hourly_tasks:
+                    hourly_tasks[location] = client.fetch(
+                        f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h",
                         params,
                         lat,
                         lon,
-                        "7d",
-                        cache.DAILY_TTL,
+                        "168h",
+                        cache.HOURLY_TTL,
                     )
 
                 warning_key = room.get("county") or name
@@ -126,14 +127,14 @@ class WeatherService:
                         cache.WARNING_TTL,
                     )
 
-            daily_results_by_location = dict(
+            hourly_results_by_location = dict(
                 zip(
-                    daily_tasks,
-                    await asyncio.gather(*daily_tasks.values()),
+                    hourly_tasks,
+                    await asyncio.gather(*hourly_tasks.values()),
                 )
             )
-            daily_results = {
-                name: daily_results_by_location[location]
+            hourly_results = {
+                name: hourly_results_by_location[location]
                 for name, location in room_location_by_name.items()
             }
             warning_results = dict(
@@ -143,46 +144,6 @@ class WeatherService:
                 )
             )
 
-            hourly_tasks = {}
-            date_ranges = {}
-            for name, data in daily_results.items():
-                if not isinstance(data, dict):
-                    continue
-                daily = [item for item in data.get("daily", []) if isinstance(item, dict)]
-                if not daily:
-                    continue
-                room = rooms_by_name[name]
-                lat = room.get("lat", 0)
-                lon = room.get("lon", 0)
-                location = room_location_by_name[name]
-                params = {**params_base, "location": location}
-                date_ranges[name] = (
-                    daily[0].get("fxDate", ""),
-                    daily[-1].get("fxDate", ""),
-                )
-                if location not in hourly_tasks:
-                    hourly_tasks[location] = client.fetch(
-                        f"{QWEATHER_BASE_URL}/{HOURLY_HOURS}h",
-                        params,
-                        lat,
-                        lon,
-                        "168h",
-                        cache.HOURLY_TTL,
-                    )
-
-            hourly_results = {}
-            if hourly_tasks:
-                hourly_results_by_location = dict(
-                    zip(
-                        hourly_tasks,
-                        await asyncio.gather(*hourly_tasks.values()),
-                    )
-                )
-                hourly_results = {
-                    name: hourly_results_by_location.get(location)
-                    for name, location in room_location_by_name.items()
-                }
-
         result: WeatherFetchResult = {
             "counties": [],
             "updateTime": None,
@@ -191,48 +152,34 @@ class WeatherService:
             "failed": 0,
             "partialFailed": 0,
             "warningFailed": 0,
-            "dailyIncomplete": 0,
             "failedRooms": [],
             "partialFailedRooms": [],
             "warningFailedRooms": [],
-            "dailyIncompleteRooms": [],
             "auxiliaryWarnings": [],
+            "officialSuggestions": [],
         }
         auxiliary_warning_by_county = {}
+        official_suggestion_by_county = {}
 
         for room in rooms:
             name = room["name"]
-            data = daily_results.get(name)
-            daily = data.get("daily") if isinstance(data, dict) else None
-            daily_ok = isinstance(daily, list) and any(isinstance(item, dict) for item in daily)
-            if not daily_ok:
+            hourly_data = hourly_results.get(name)
+            hourly = hourly_data.get("hourly") if isinstance(hourly_data, dict) else None
+            hourly_ok = isinstance(hourly, list) and any(isinstance(item, dict) for item in hourly)
+            if not isinstance(hourly_data, dict):
                 result["failed"] += 1
                 result["failedRooms"].append(name)
-
-            hourly = None
-            if daily_ok:
+                stats = empty_weather_stats()
+            else:
                 if not result["updateTime"]:
-                    result["updateTime"] = data.get("updateTime")
-                hourly_response = hourly_results.get(name)
-                if isinstance(hourly_response, dict):
-                    start, end = date_ranges.get(name, ("", ""))
-                    hourly_list = hourly_response.get("hourly", [])
-                    if isinstance(hourly_list, list) and start and end:
-                        hourly = [
-                            item
-                            for item in hourly_list
-                            if isinstance(item, dict)
-                            and start <= str(item.get("fxTime", ""))[:10] <= end
-                        ]
-                stats = compute_weather_stats(daily, hourly)
-                if not stats["dailyDataComplete"]:
-                    result["dailyIncomplete"] += 1
-                    result["dailyIncompleteRooms"].append(name)
+                    result["updateTime"] = hourly_data.get("updateTime")
+                stats = compute_hourly_forecast_stats(
+                    hourly,
+                    expected_hours=int(HOURLY_HOURS),
+                )
                 if not stats["hourlyDataComplete"]:
                     result["partialFailed"] += 1
                     result["partialFailedRooms"].append(name)
-            else:
-                stats = empty_weather_stats()
 
             warning_key = warning_key_by_name[name]
             warning_data = warning_results.get(warning_key)
@@ -243,11 +190,13 @@ class WeatherService:
                 result["updateTime"] = warning_data.get("updateTime")
 
             official_warnings = WeatherService._attach_warnings(stats, warning_data)
-            if not daily_ok:
+            if official_warnings:
+                official_suggestion_by_county[warning_key] = official_warnings
+            if not hourly_ok:
                 WeatherService._add_auxiliary_warning(
                     auxiliary_warning_by_county, room, official_warnings
                 )
-            if is_forecast_warning(stats):
+            if is_forecast_alert(stats):
                 result["warned"] += 1
                 result["counties"].append(
                     {
@@ -260,6 +209,10 @@ class WeatherService:
         result["auxiliaryWarnings"] = [
             {"county": county, "warnings": warnings}
             for county, warnings in sorted(auxiliary_warning_by_county.items())
+        ]
+        result["officialSuggestions"] = [
+            {"county": county, "warnings": warnings}
+            for county, warnings in sorted(official_suggestion_by_county.items())
         ]
         return result
 
@@ -373,13 +326,13 @@ class WeatherService:
                 WeatherService._add_auxiliary_warning(
                     auxiliary_warning_by_county, room, official_warnings
                 )
-            if is_forecast_significant(immediate_stats):
+            if is_forecast_alert(immediate_stats):
                 result["immediateRisks"].append(
                     WeatherService._risk_room(
                         room, immediate_stats, immediate_records, target_start, immediate_end
                     )
                 )
-            if is_forecast_significant(outlook_stats):
+            if is_forecast_alert(outlook_stats):
                 result["outlookRisks"].append(
                     WeatherService._risk_room(
                         room, outlook_stats, outlook_records, target_start, outlook_end
