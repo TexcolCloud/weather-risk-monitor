@@ -14,6 +14,6 @@ build/
 dist/
 *.egg-info/
 .agents/
-uv-cache
-uv-runtime-cache
+.uv-cache/
+.uv-runtime-cache/
 PPT_Maker
