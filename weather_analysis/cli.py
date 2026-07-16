@@ -76,7 +76,7 @@ async def main(argv=None):
         if report_path:
             print(report_path.read_text(encoding="utf-8"), end="")
         else:
-            print("下一小时及未来3小时暂无橙色、红色或官方预警机房。")
+            print("下一小时及未来3小时暂无达到黄色及以上数据阈值的机房。")
         return 2 if result.get("total", 0) and result.get("failed", 0) >= result["total"] else 0
 
     run_result = await ScheduledJobRunner(locations).run_full_forecast()
