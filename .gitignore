@@ -13,3 +13,6 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+.agents/
+.uv-cache
+.uv-runtime-cache
