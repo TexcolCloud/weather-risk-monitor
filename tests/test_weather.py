@@ -26,7 +26,9 @@ def _hourly(hours: int = 168, temp: str = "25", precip: str = "0", text: str = "
 
 class WeatherServiceTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.enterContext(patch("weather_analysis.weather.QWEATHER_API_KEY", "offline-test-key"))
+        credentials = patch("weather_analysis.weather.QWEATHER_API_KEY", "offline-test-key")
+        credentials.start()
+        self.addCleanup(credentials.stop)
 
     async def test_partial_hourly_failure_does_not_abort_successful_rooms(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
