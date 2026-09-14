@@ -25,6 +25,9 @@ def _hours(temperatures=(38, 36, 35), precipitation=(0, 0, 0)):
 
 
 class HourlyRiskTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.enterContext(patch("weather_analysis.weather.QWEATHER_API_KEY", "offline-test-key"))
+
     async def test_immediate_and_three_hour_risks_are_reported_separately(self):
         async def fake_fetch(client, url, params, lat, lon, endpoint, ttl):
             if endpoint == "168h":

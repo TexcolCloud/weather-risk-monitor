@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import io
+import os
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -59,6 +60,9 @@ async def main(argv=None):
         print("缓存已清除。")
         return 0
 
+    if not os.environ.get("WEATHER_ANALYSIS_SITES_FILE"):
+        print("Set WEATHER_ANALYSIS_SITES_FILE to an authorized local site file before querying weather.", file=sys.stderr)
+        return 2
     locations = _locations()
     if args.command == "daemon":
         try:

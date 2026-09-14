@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "qweather-hardcoded-api-key"
+description = "Hardcoded QWeather API key"
+regex = '''(?i)QWEATHER_API_KEY\s*[:=]\s*["']?([a-z0-9_-]{32})\b'''
+secretGroup = 1
+keywords = ["qweather_api_key"]

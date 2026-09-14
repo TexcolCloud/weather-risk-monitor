@@ -1,6 +1,13 @@
 .idea/
 .venv/
 .env
+.env.*
+!.env.example
+*.local.json
+private-data/
+*.pem
+*.key
+*.p12
 .cache/
 cache/
 logs/

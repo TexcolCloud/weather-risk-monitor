@@ -53,6 +53,38 @@ class RunStateStore:
 
 
 def _process_is_running(pid: int) -> bool:
+    if isinstance(pid, bool) or pid <= 0:
+        return False
+    if os.name == "nt":
+        # os.kill(pid, 0) sends CTRL_C_EVENT on Windows and can interrupt the
+        # shared console, including the terminal or agent running this program.
+        import ctypes
+        from ctypes import wintypes
+
+        if pid > 0xFFFFFFFF:
+            return False
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            error = ctypes.get_last_error()
+            if error == 87:  # ERROR_INVALID_PARAMETER: no process for this PID
+                return False
+            if error == 5:  # ERROR_ACCESS_DENIED: preserve the existing lock
+                return True
+            raise ctypes.WinError(error)
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            return exit_code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
