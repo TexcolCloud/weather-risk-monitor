@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1360" viewBox="0 0 1640 1360" role="img" aria-labelledby="title desc">
+<title id="title">天气风险分析工作流</title><desc id="desc">范围：单次 / 常驻触发 → 多站点分析 → 本地报告；不包含网络消息发送；全部连接线为水平或垂直线段。可放大阅读。</desc>
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#516477"/></marker></defs>
+<g font-family="Microsoft YaHei, Noto Sans CJK SC, PingFang SC, sans-serif">
+<rect x="0" y="0" width="1640" height="1360" fill="#ffffff" stroke="#ffffff" stroke-width="1.6"/>
+<text x="40" y="58" font-size="34" fill="#16324a" text-anchor="start" font-weight="700">天气风险分析工作流</text>
+<text x="40" y="94" font-size="19" fill="#516477" text-anchor="start">范围：单次 / 常驻触发 → 多站点分析 → 本地报告；不包含网络消息发送</text>
+<text x="40" y="132" font-size="18" fill="#516477" text-anchor="start">图例：矩形＝步骤 / 产物   菱形＝判断   圆形＝阶段接续   箭头＝执行方向   全部连线使用直角折线</text>
+<rect x="40" y="165" width="480" height="990" fill="#fafcfe" stroke="#c9d5df" stroke-width="1.6"/>
+<rect x="40" y="165" width="480" height="62" fill="#eaf0f6" stroke="#c9d5df" stroke-width="1.6"/>
+<text x="60" y="204" font-size="24" fill="#16324a" text-anchor="start" font-weight="700">01  配置与触发</text>
+<rect x="580" y="165" width="480" height="990" fill="#fafcfe" stroke="#c9d5df" stroke-width="1.6"/>
+<rect x="580" y="165" width="480" height="62" fill="#eaf0f6" stroke="#c9d5df" stroke-width="1.6"/>
+<text x="600" y="204" font-size="24" fill="#16324a" text-anchor="start" font-weight="700">02  采集与风险分析</text>
+<rect x="1120" y="165" width="480" height="990" fill="#fafcfe" stroke="#c9d5df" stroke-width="1.6"/>
+<rect x="1120" y="165" width="480" height="62" fill="#eaf0f6" stroke="#c9d5df" stroke-width="1.6"/>
+<text x="1140" y="204" font-size="24" fill="#16324a" text-anchor="start" font-weight="700">03  产物与状态</text>
+<rect x="70" y="275" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="70" y="275" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="88" y="307" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">读取本地配置与站点</text>
+<text x="88" y="338" font-size="19" fill="#516477" text-anchor="start">API Key、站点文件、数据根目录</text>
+<text x="88" y="364" font-size="19" fill="#516477" text-anchor="start">校验坐标、名称与站点唯一性</text>
+<rect x="70" y="475" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="70" y="475" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="88" y="507" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">选择命令与目标窗口</text>
+<text x="88" y="538" font-size="19" fill="#516477" text-anchor="start">默认完整预测 / hourly / daemon</text>
+<text x="88" y="564" font-size="19" fill="#516477" text-anchor="start">按 Asia/Shanghai 解释目标时间</text>
+<polyline points="255,400 255,475" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="70" y="675" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="70" y="675" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="88" y="707" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">执行任务互斥与计划检查</text>
+<text x="88" y="738" font-size="19" fill="#516477" text-anchor="start">daemon 使用进程锁和批次状态</text>
+<text x="88" y="764" font-size="19" fill="#516477" text-anchor="start">正式整点任务可等待运行中的任务</text>
+<polyline points="255,600 255,675" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="70" y="875" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="70" y="875" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="88" y="907" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">开始采集任务</text>
+<text x="88" y="938" font-size="19" fill="#516477" text-anchor="start">完整预测：168 小时</text>
+<text x="88" y="964" font-size="19" fill="#516477" text-anchor="start">整点：下一小时与未来 3 小时</text>
+<polyline points="255,800 255,875" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<circle cx="255" cy="1123" r="18" fill="#fff" stroke="#255f91" stroke-width="1.6"/>
+<text x="255" y="1131" font-size="24" fill="#255f91" text-anchor="middle" font-weight="700">A</text>
+<polyline points="255,1000 255,1105" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<circle cx="795" cy="248" r="18" fill="#fff" stroke="#255f91" stroke-width="1.6"/>
+<text x="795" y="256" font-size="24" fill="#255f91" text-anchor="middle" font-weight="700">A</text>
+<polyline points="795,266 795,275" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="610" y="275" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="610" y="275" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="628" y="307" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">请求预报与官方预警</text>
+<text x="628" y="338" font-size="19" fill="#516477" text-anchor="start">HTTPX 并发、限速、缓存和重试</text>
+<text x="628" y="364" font-size="19" fill="#516477" text-anchor="start">正式整点分析强制刷新</text>
+<rect x="610" y="475" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="610" y="475" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="628" y="507" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">归一化与统计窗口</text>
+<text x="628" y="538" font-size="19" fill="#516477" text-anchor="start">汇总温度、风力、降水与现象</text>
+<text x="628" y="564" font-size="19" fill="#516477" text-anchor="start">记录缺失、部分失败及预警信息</text>
+<polyline points="795,400 795,475" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="610" y="675" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="610" y="675" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="628" y="707" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">应用风险阈值并组织结果</text>
+<text x="628" y="738" font-size="19" fill="#516477" text-anchor="start">按区域 / 站点整理风险</text>
+<text x="628" y="764" font-size="19" fill="#516477" text-anchor="start">官方预警作为辅助信息</text>
+<polyline points="795,600 795,675" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="610" y="875" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="610" y="875" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="628" y="907" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">生成可核查报告</text>
+<text x="628" y="938" font-size="19" fill="#516477" text-anchor="start">完整摘要或整点重点风险</text>
+<text x="628" y="964" font-size="19" fill="#516477" text-anchor="start">保留目标时间与数据缺失情况</text>
+<polyline points="795,800 795,875" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<circle cx="795" cy="1123" r="18" fill="#fff" stroke="#255f91" stroke-width="1.6"/>
+<text x="795" y="1131" font-size="24" fill="#255f91" text-anchor="middle" font-weight="700">B</text>
+<polyline points="795,1000 795,1105" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<circle cx="1335" cy="248" r="18" fill="#fff" stroke="#255f91" stroke-width="1.6"/>
+<text x="1335" y="256" font-size="24" fill="#255f91" text-anchor="middle" font-weight="700">B</text>
+<polyline points="1335,266 1335,275" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="1150" y="275" width="370" height="125" fill="#f0f8f4" stroke="#23735d" stroke-width="1.6"/>
+<rect x="1150" y="275" width="5" height="125" fill="#23735d" stroke="#23735d" stroke-width="1.6"/>
+<text x="1168" y="307" font-size="24" fill="#23735d" text-anchor="start" font-weight="700">保存报告与审计</text>
+<text x="1168" y="338" font-size="19" fill="#516477" text-anchor="start">Markdown + JSON → reports/</text>
+<text x="1168" y="364" font-size="19" fill="#516477" text-anchor="start">所有分析结果保存本地</text>
+<polygon points="1335,480 1480,545 1335,610 1190,545" fill="#fff9ed" stroke="#926218" stroke-width="1.8"/>
+<text x="1335" y="552" font-size="22" fill="#16324a" text-anchor="middle" font-weight="700">属于整点分析？</text>
+<polyline points="1335,400 1335,480" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="1150" y="705" width="370" height="125" fill="#f4f8fc" stroke="#255f91" stroke-width="1.6"/>
+<rect x="1150" y="705" width="5" height="125" fill="#255f91" stroke="#255f91" stroke-width="1.6"/>
+<text x="1168" y="737" font-size="24" fill="#255f91" text-anchor="start" font-weight="700">按结果写整点 Outbox</text>
+<text x="1168" y="768" font-size="19" fill="#516477" text-anchor="start">全部缺失 failed；无风险 not_required</text>
+<text x="1168" y="794" font-size="19" fill="#516477" text-anchor="start">有风险：正式 pending / 预览 preview</text>
+<polyline points="1335,610 1335,705" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="1343" y="639" width="31" height="25" fill="#fff" stroke="#fff" stroke-width="1.6"/>
+<text x="1350" y="655" font-size="17" fill="#516477" text-anchor="start">是</text>
+<rect x="1150" y="925" width="370" height="125" fill="#f0f8f4" stroke="#23735d" stroke-width="1.6"/>
+<rect x="1150" y="925" width="5" height="125" fill="#23735d" stroke="#23735d" stroke-width="1.6"/>
+<text x="1168" y="957" font-size="24" fill="#23735d" text-anchor="start" font-weight="700">保留本地状态与报告</text>
+<text x="1168" y="988" font-size="19" fill="#516477" text-anchor="start">完整预测登记 pending（含缺失报告）</text>
+<text x="1168" y="1014" font-size="19" fill="#516477" text-anchor="start">单次预报全部失败：退出码 2</text>
+<polyline points="1335,830 1335,925" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<polyline points="1480,545 1570,545 1570,987 1520,987" fill="none" stroke="#516477" stroke-width="2" stroke-linejoin="miter" marker-end="url(#arrow)"/>
+<rect x="1428" y="875" width="110" height="24" fill="#fff" stroke="#fff" stroke-width="1.6"/>
+<text x="1435" y="890" font-size="16" fill="#516477" text-anchor="start">否：完整预测</text>
+<rect x="40" y="1195" width="1560" height="120" fill="#f6f8fb" stroke="#cad5df" stroke-width="1.6"/>
+<text x="60" y="1230" font-size="19" fill="#516477" text-anchor="start">daemon：每个整点检查风险，每天 08:30 / 20:30 完整预测；启动时补跑当天最近到期且未完成的完整预测。</text>
+<text x="60" y="1260" font-size="19" fill="#516477" text-anchor="start">启动预览：距下一整点超过 60 秒才执行；--no-immediate 仅关闭预览。预报全部失败的计划批次不标记完成。</text>
+<text x="60" y="1290" font-size="19" fill="#516477" text-anchor="start">Outbox 是本地状态清单：pending 不等于已发送，也不保证完整预测的数据可用。报告和审计应一并检查。</text>
+</g>
+</svg>
